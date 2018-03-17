@@ -24,12 +24,10 @@ BSQ format: The intuitive, simplest format where each line of the data is follow
 Output: Binary files written in BIL (time sequential) format. 
 
 BIL format: All timepoints of first (11) pixel, then all timepoints of second (12) pixel,...., all timepoints of last (MN) pixel.
-
-[111, 112, 113, 114, ...., 11T,
- 
- 121, 122, 123, 124, ...., 12T,
+           
+           [111, 112, 113, 114, ...., 11T,
+            121, 122, 123, 124, ...., 12T,
              .
              .
              .
- 
- MN1, MN2, MN3, MN4, ...., MNT]
+            MN1, MN2, MN3, MN4, ...., MNT]
