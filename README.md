@@ -1,14 +1,15 @@
 # lulcFortran
 Fortran codes for lulc
 
-Input: A binary file written in BSQ format.
+Inputs: (i) A binary file written in BSQ format (integer spectral values), (ii) A header file for the binary file, and (iii) a csv file with dates information.
 
-Each image has M rows and N columns.
-There are T timestamps (i.e., T images) in all.
+Each image is an M x N matrix (M rows and N columns).
+There are S images (i.e., S timestamps) in all.
+
 
 BSQ format: The intuitive, simplest format where each line of the data is followed immediately by the next line in the same time point (or, spectral band).
 
-            [111, 121, 131, 141, ...., 1NT, 
+            [111, 121, 131, 141, ...., 1N1,
              211, 221, 231, 241, ...., 2N1,
              .
              M11, M21, M31, M41, ...., MN1;
@@ -18,8 +19,10 @@ BSQ format: The intuitive, simplest format where each line of the data is follow
              M12, M22, M32, M42, ...., MN2;
              .
              .
-             M1T, M2T, M3T, M4T, ...., MNT]
-
+             11S, 12S, 13S, 14S, ...., 1NS,
+             .
+             .
+             M1T, M2T, M3T, M4T, ...., MNS]
  
 Output: Binary files written in BIL (time sequential) format. 
 
