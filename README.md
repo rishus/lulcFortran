@@ -34,3 +34,7 @@ BIL format: All timepoints of first (11) pixel, then all timepoints of second (1
              .
              .
             MN1, MN2, MN3, MN4, ...., MNT]
+
+Notes:
+1) BRATIO.f90 and bsplines.f are part of standard libraries. I received these codes from Dr. L.T. Watson.
+2) Topmost code is poly\_united\_par.f90.
