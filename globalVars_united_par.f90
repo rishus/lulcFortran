@@ -19,7 +19,8 @@ INTEGER (KIND = 2), ALLOCATABLE :: input_mat(:,:,:), tyeardoy(:,:)
 LOGICAL :: reverse
 INTEGER ::  num_obs
 INTEGER (KIND = 8) :: NumRows, NumCols
-REAL(KIND=R8), PARAMETER :: Pi = 3.141592653589793_R8
+REAL(KIND=R8), PARAMETER :: Pi = 3.141592653589793_R8, mdv = -2222
+
 
 !*********for EWMACD **********************
 REAL(KIND=4), ALLOCATABLE :: ewma_summary(:,:,:), ewma_residuals(:,:,:), ewma_coeffs(:,:,:)

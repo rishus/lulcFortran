@@ -17,11 +17,11 @@ INTEGER :: i, ncols, len_training_vec, Sfinal, pctr
 INTEGER :: ierr_lsfit, aerr, derr, sIbar
 REAL(KIND=R8), DIMENSION(num_obs) ::  t, D
 REAL(KIND=R8)  :: sigmaIhat  
-REAL(KIND=R8), DIMENSION(2*ewmacd_numHarmonics+1) :: alphaStar  !, this_band_fit
+REAL(KIND=R8), DIMENSION(2*ewmacd_numHarmonics+1) :: alphaStar
 REAL(KIND=R8), DIMENSION(num_obs) :: EstarAlphastar, tau, z, f, persistenceVec
 INTEGER, DIMENSION(num_obs) :: Ibar
 INTEGER (KIND = 2), DIMENSION(num_obs) :: jump_vals_presSten, presInd
-!REAL (KIND = 4), DIMENSION(num_obs) :: residuals_presSten  ! uncomment only if residuals are needed
+!REAL (KIND = 4), DIMENSION(num_obs) :: residuals_presSten  ! uncomment only residuals are needed
 LOGICAL :: nullFlag
 type(ewmaWA) :: work_arr
 character(256) :: my_errmsg
@@ -30,6 +30,7 @@ character(256) :: my_errmsg
 ! ********* PURPOSE **************
 !   Main code for algorithm EWMACD
 !   Supporting files are all in utilities_ewma.f90
+!   Output is written to the array ewma_summary
 ! ***********************************************
 
 num_pixels = SIZE(imgIndex, 1)
@@ -104,14 +105,14 @@ DO pixel = 1, num_pixels
        ! persistenceVec gets allocated; again size sz
        CALL persistenceCounting(f(1:sIbar), persistenceVec(1:sIbar), work_arr, sIbar)
     
-       jump_vals_presSten(1:Sfinal) = -2222_2   ! present data = 'good' data + 'outlier' data
+       jump_vals_presSten(1:Sfinal) = INT(mdv, KIND=2)  ! present data = 'good' data + 'outlier' data
        jump_vals_presSten(Ibar) = INT(persistenceVec(1:sIbar), KIND=2)  ! remember that Ibar is relative to 'Sfinal'
     
        CALL summarize(pixel_x, pixel_y, jump_vals_presSten(1:Sfinal),  &
                      &          presInd(1:Sfinal), 3, Sfinal, num_obs)
     
 !       ! Uncomment IF residuals are desired
-!       residuals_presSten(1:Sfinal) = -2222
+!       residuals_presSten(1:Sfinal) = mdv
 !       DO i = 1, sIbar
 !          residuals_presSten(Ibar(i)) = REAL(EstarAlphastar(Ibar(i)), KIND=4) ! EstarAlphastar is of size Sfinal
 !       END DO                                                        ! However, we are retaining only the values 

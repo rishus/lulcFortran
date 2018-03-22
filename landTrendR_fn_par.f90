@@ -31,6 +31,8 @@ REAL(KIND=R8), DIMENSION(ltr_mu+ltr_nu+1) :: all_fstats
 TYPE(ltr_model), DIMENSION(ltr_mu + ltr_nu + 1) :: my_models
 TYPE(fittingStats_ltr) :: thisModelStats
 real :: slope, intercept
+integer, dimension(ltr_mu + ltr_nu+1) :: vecTrendBrks, brkptsGI
+integer, dimension(ltr_mu + ltr_nu+1, 2) :: brkPtYrDoy
 
 !other variables (parameters)
 INTEGER :: bestModelInd, num_models_evaluated, bestModelIndTmp(1:1)
@@ -38,27 +40,23 @@ INTEGER :: order, numTotalVertices, numInternalVertices, splines_l, ktimesl
 INTEGER :: ctntyCondsPerVertex, sum_ctntyCondsPerInternalVertex, n_dim
 INTEGER :: num_models, left, right
 REAL(kind = r8) :: x1, y1, x2, y2
-
-!output variables
-integer, dimension(ltr_mu + ltr_nu+1) :: vecTrendBrks, brkptsGI
-integer, dimension(ltr_mu + ltr_nu+1, 2) :: brkPtYrDoy
 ! ***********************************************
 
 ! ********* PURPOSE **************
 !   Main code for algorithm LandTrendR
 !   Supporting files are all in utilities_ltr.f90, bsplines.f90, and BRATIO.f90
+!   Output is written to ltr_summary
 ! ***********************************************
 
 
-!numTrendBrks = ltr_max_numBrks ! this is internal number of breaks.If we do 
-!count the boundary pts
+!numTrendBrks = ltr_max_numBrks ! this is internal number of breaks.
 
 ALLOCATE (work_arr%tmp_mat(num_obs, 5),  &
           work_arr%rtmp_vec1(num_obs), work_arr%rtmp_vec2(num_obs),  &
           work_arr%itmp_vec1(num_obs), work_arr%itmp_vec2(num_obs))
 num_pixels = SIZE(imgIndex, 1)
 
-vec_obs_despiked = -2222
+vec_obs_despiked = mdv
 DO pixel = 1, num_pixels
 
      pixel_x = mod(imgIndex(pixel), NumCols)
@@ -408,8 +406,8 @@ DO pixel = 1, num_pixels
 
      ! Summarize
      ! (1) Trend summary:
-!     ltr_summary(presInd(1:num_valid_obs), pixel_x, pixel_y) = real(my_models(bestModelInd)% &
-!                                        yfit(1:num_valid_obs), kind=4)
+     ltr_summary(presInd(1:num_valid_obs), pixel_x, pixel_y) = real(my_models(bestModelInd)% &
+                                        yfit(1:num_valid_obs), kind=4)
      ! using the array initVerts itself here for storing the final vertices.
      ! these are wrt the pres indices, though
      numTotalVertices = my_models(bestModelInd)%numVertices
