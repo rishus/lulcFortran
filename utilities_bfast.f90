@@ -6,10 +6,16 @@ CONTAINS
 SUBROUTINE cumsum(arr)
 USE REAL_PRECISION
 IMPLICIT NONE
+!  calculates the cumulative sum of the input array
+!  and stores it in the same array.
+!
+!  Input:
+!       arr:   array whose cumulative sum is to be calculated
+!  Output:
+!       arr:   input array overwritten with the cumulative sums
 
    REAL(KIND=R8), INTENT(INout) :: arr(:)
    INTEGER :: n, i
-   !REAL(KIND=R8), optional, INTENT(INOUT) :: cumsum
 
    n = SIZE(arr)
    IF (n .EQ. 0) RETURN
@@ -20,9 +26,23 @@ IMPLICIT NONE
 END SUBROUTINE cumsum
 
 SUBROUTINE regress(t, y, model, fit, coeffs, K, work_arr)
-USE globalVars_par   !only for the definition of bfastWA and numHarmonics?
+USE globalVars_par   !only for the definition of bfastWA and numHarmonics.
 IMPLICIT NONE
-   !If model is harmonic, K MUST be supplied
+!    Least squares regression.
+!    Helper functions:
+!        LAPACK routine DGELS
+!    Inputs:
+!        t:        x-coordinates
+!        y:        y-coordinates (observations)
+!        model:   'linear' or 'harmon'
+!                 'harmon' will do harmonic regression.
+!        K:        number of harmonics needed in case of harmonic regression.
+!                  in case of linear regression, simply pass 0
+!        
+!    Outputs:
+!        coeffs:   list of fit coefficients
+!        fit:      least squares fit
+        
    REAL(KIND=R8), INTENT(IN) :: t(:), y(:)
    CHARACTER(LEN=6), INTENT(IN) :: model
    INTEGER :: ncols, m, i, lwork, info, DeAllocateStatus, j
@@ -47,7 +67,7 @@ IMPLICIT NONE
       ncols = 2*K + 1
    ELSE
       PRINT *, "MODEL = ", model
-      PRINT *, "model not supplied"
+      PRINT *, "model not supported"
       STOP
    ENDIF
 
@@ -84,10 +104,24 @@ END SUBROUTINE regress
 SUBROUTINE OLSMosum(t, obs, process, model, h, K, work_arr)
 USE globalVars_par
 IMPLICIT NONE
+!    Supporting function for Step 1.1 & 2.1 of the pseudocode.
+!    
+!    Ordinary least squares movising sums (OLS-MOSUM) test:
+!        OLS prediction error is calculated.
+!    
+!    Inputs:
+!        t:      x-coordinates
+!        obs:    y-coordinates (observations)
+!        model:  string ('linear' or 'harmon')
+!        h:      parameter for determining breakpoint spacing. ( 0 < h < 1)
+!        K:      degree of the fitting polynomial.
+!                For a linear fit, K = 1.
+!                For a trigonometric fit, K = number of harmonics we want to use.
+!        
+!    Outputs:
+!        process:  array.
+!                  the process defined by the moving sums (MOSUM) of these OLS residuals
 
-   ! K is the degree of the fitting polynomial.
-   ! For a linear fit, K = 1.
-   ! For a trigonometric fit, K = number of harmonics we want to use.
    REAL(KIND=R8), INTENT(IN) :: t(:), obs(:), h
    CHARACTER(LEN=6), OPTIONAL, INTENT(IN) :: model
    INTEGER(kind=2), OPTIONAL, INTENT(IN) :: K
@@ -127,6 +161,17 @@ IMPLICIT NONE
 END SUBROUTINE OLSMosum
 
 SUBROUTINE criticalValueTables(method, critValTable, startRow, ENDRow)
+!    Reference tables for critical values calculations.
+!    In future, this may be moved to commons.py, if more algorithms utilize it.
+!   
+!    Input:
+!        method:       currently only 'brownian bridge increments' is supported
+!                      in future, other methods may be included
+!        startRow:     integer
+!        endR:         integer
+!    Output:
+!        critValTable: Array
+!                      A table of  dimensions (endRow - startRow) x 4.
 USE globalVars_par 
 IMPLICIT NONE
 
@@ -136,6 +181,10 @@ IMPLICIT NONE
 
    IF (method .EQ. "brownian bridge increments") THEN
       !Brownian bridge increments with "max" 
+      !BBI is defined as a global variable and allocated, assigned,
+      !and deallocated in the main program. This helps in minimizing
+      !allocations-deallocations --- an important issue in
+      !performance, especially when running in parallel.
       critValTable = BBI(startRow:ENDRow,:)
    END IF
    !Brownian bridge with maxL2
@@ -146,11 +195,17 @@ END SUBROUTINE criticalValueTables
 
 SUBROUTINE fillLine2(x, xEndpts, yEndpts, filledPoints, slopeOut)
 IMPLICIT NONE
-  ! Differs from fillLine only in the fact that this one 
-  ! (1) evaluates only one segment at a time  
-  ! (2) input x is the x-coordinates at which we want the evaluation done
-  ! (3) output y is the computed y-coordinates cors to x
-  REAL(KIND=R8), INTENT(IN):: x(:), xEndpts(:), yEndpts(:) !xEndpts, yEndpts are just 2 element arrays consisting of the starting and ENDing points of the desired line
+!  Interpolates
+!  Inputs:
+!       x:        the x-coordinates at which we want the evaluation done
+!       xEndpts:  2 element array with two end point x-values (x_1, x_2)
+!       yEndpts:  2 element array with two end point y-values (y_1, y_2)
+!  Outputs:
+!       filledPoints:  the computed y-coordinates cors to x
+!       slopeOut:      scalar.
+!                      slope of the line joining xEndpts, yEndpts
+
+  REAL(KIND=R8), INTENT(IN):: x(:), xEndpts(:), yEndpts(:) 
   INTEGER :: i
   REAL(KIND=R8) :: slope
   REAL(KIND=R8), OPTIONAL, INTENT(OUT) :: slopeOut
@@ -166,13 +221,26 @@ END SUBROUTINE fillLine2
 
 SUBROUTINE calcpValue(x, method, pval, k, h, fnalin)
 IMPLICIT NONE
-   ! x is the value at which the pValue has to be evaluated.
-   ! method ... right now only ""brownian bridge increments" is supported
-   ! pval is the output to be returned, again, a scalar
-   ! k is the number of columns in the 'process'
-   ! h is ... i don't know ... looks like sth to do with grid spacing. it's a
-   ! parameter.
-   ! fnalin ... right now only "max" is supported.
+!    Steps 1.1 & 2.1 of the pseudocode.
+!    OLS MOSUM test pval calculation.
+!    The test is based on:
+!    
+!    Chu, C-S.J., Hornik, K., and Kuan, C.-M., 1995, “Mosum tests for parameter constancy,” Biometrika, 82, 603–617.
+!    
+!    Brownian bridge crossing probabilities are read from the corresponding table.
+!    
+!    Inputs:
+!        x:        the value at which the pValue has to be evaluated.
+!        method:   right now only ""brownian bridge increments" is supported
+!        k:        the number of columns in the 'process'
+!        h:        parameter for grid spacing. ( 0 < h < 1)
+!        fnalin:   the type of calculation to be used. Currently, only fnal=max is implemented.
+!                  In future, other kinds of fnal's may also be included. 
+!        
+!    Output:
+!        pval:   scalar.
+!                A p-value less than a user defined parameter  V ∈ (0, 1) indicates the presence of breakpoints.
+
    REAL(KIND=R8), INTENT(IN) :: x, h
    INTEGER(kind=2) :: k
    CHARACTER(LEN=3), OPTIONAL, INTENT(IN) :: fnalin
@@ -197,7 +265,7 @@ IMPLICIT NONE
       ENDR = k*10
       IF (fnal .EQ. "max") THEN
          CALL criticalValueTables("brownian bridge increments",critValTable, start, ENDR)
-         tableNcols = SIZE(critValTable, 2)  !redundant as of now becuz we've allocated fixen no. of cols = 4 in/for the table.
+         tableNcols = SIZE(critValTable, 2)  !redundant as of now becuz we've allocated fixed no. of cols = 4 in/for the table.
          tableH = (/ (0.05*i, i=1,10) /)
          tableP = (/ 1.0_R8, 0.1_R8, 0.05_R8, 0.02_R8, 0.01_R8 /)
          tableipl = (/ (0, i=1,tableNcols+1) /)
@@ -234,13 +302,16 @@ SUBROUTINE recres(vec_timestamps, vec_obs, begin_idx, model, deg, &
                 &   work_arr, recResidual, Sfinal, ncols)
 USE globalVars_par
 IMPLICIT NONE
+!    Supporting function for Steps 1.2 & 2.2 of the pseudocode.
+!    
+!    Given arrays t (x-coordinates) and u (y-coordinates), for each point in range(begin_idx-1, Sfinal-1),
+!    a least squares fit is calculated and the weighted prediction error (the recursuve residual)
+!    for the corresponding 'next' point is estimated.
 
    REAL(KIND=R8), INTENT(IN) :: vec_timestamps(:), vec_obs(:)
    INTEGER, INTENT(IN) :: begin_idx, Sfinal, ncols
    INTEGER(kind=2), INTENT(IN) :: deg
    CHARACTER(LEN=6), INTENT(IN) :: model
-
-   !INTEGER :: Sfinal, ncols, curr_idx, j, i, info !, rank
    INTEGER :: curr_idx, j, i, info !, rank
    REAL(KIND=R8), DIMENSION(Sfinal, ncols) :: mat_design
    REAL(KIND=R8) :: vec_fitobs(Sfinal), vec_fitcoefs(ncols)
@@ -258,9 +329,6 @@ IMPLICIT NONE
        END SUBROUTINE DGESV
    END INTERFACE
 
-!   if (model == 'harmon')then
-!     print *, 'in recres, Sfinal = ', Sfinal, 'model = ', model
-!   endif
    IF (model == 'linear') THEN
       mat_design(:, 1) = 1
       mat_design(:, 2) = vec_timestamps
@@ -314,20 +382,6 @@ IMPLICIT NONE
       ENDIF
 
       fr = 1 + DOT_PRODUCT(mat_design(curr_idx+1, :), work_arr%rtmp_vec2(1:ncols))
-      !if (model == 'harmon') then
-!          print *, 'reached here in recres 5', curr_idx, 'fr=', fr
-      !endif
-      if (fr <0) then
-         print *, 'fr < 0'
-         print *, model, 'model'
-         print *, 'info = ', info
-         do j = 1,ncols
-            print *, work_arr%tmp_mat(j, 1:ncols)
-         end do
-         print *, mat_design(curr_idx+1, :)
-         print *, 'COEFFS =', work_arr%rtmp_vec2(1:ncols)
-         stop
-      endif
       recResidual(curr_idx+1) = (vec_obs(curr_idx+1) -  &
               DOT_PRODUCT(mat_design(curr_idx+1,:), vec_fitcoefs))/SQRT(fr)
    END DO
@@ -337,9 +391,25 @@ END SUBROUTINE recres
 SUBROUTINE buildDynPrTable(RSStri_full, Sfinal, numBrks, matPos, vecBrkPts)
 USE globalVars_par
 IMPLICIT NONE
-
-   !numBrks is the number of internal breakpoints.
-   !vecBrkPts is of dimension numBrks, i.e., t1 ans tS are NOT included in it.
+!    Supporting function for Steps 1.2 & 2.2 of the pseudocode.
+!
+!    RSStri_full contains all required cumsums.
+!    RSSTri_full is used to
+!          (i)   build the cost matrix mastCost, and subsequently, 
+!          (ii)  to fill in matPos, and finally,
+!          (iii) place the breakpoints.
+!    buildDynPrTable returns both matPos and the breakpoints.
+!    Note: We don't do anything with matPos in getBrkPts. It was allocated
+!          there and passed in here only to alleviate the number of
+!          allocations/deallocations.
+!
+!    Inputs:
+!         RSSTri_full, Sfinal, numBrks
+!
+!    Outputs: matPos, vecBrkPts
+!
+!    numBrks is the number of internal breakpoints.
+!    vecBrkPts is of dimension numBrks, i.e., t1 ans tS are NOT included in it.
 
    REAL(KIND=R8), intent(in) :: RSStri_full(:,:)
    INTEGER(kind=2), INTENT(IN) ::  numBrks, Sfinal
@@ -360,10 +430,12 @@ IMPLICIT NONE
    !make sure n > numBrks+1 * h
    DO nbs = 2,numBrks
       beginIdx = nbs*brkpt_spacing  !for nbs=2, h=10, beginIdx=20
-      ENDIdx = Sfinal-brkpt_spacing      !                 endIdx = n-10 = 100-90 = 90 (say)
+      ENDIdx = Sfinal-brkpt_spacing      ! endIdx = n-10 = 100-90 = 90 (say)
       potIdxBegin = (nbs-1)*brkpt_spacing   !for nbs=2,h=10, potIdxBegin=10
-      DO idx = beginIdx,ENDIdx     !matCost gets filled at entries cors to idx colums.
-         potIdxEnd = idx - brkpt_spacing       !potIdxEnd= idx-10. So vecCost gets filled from 10 to idx-10 for brk2, 20 to idx-10 for brk3, and so on.
+      DO idx = beginIdx,ENDIdx   !matCost gets filled at entries cors to idx colums.
+         potIdxEnd = idx - brkpt_spacing    !potIdxEnd= idx-10. So vecCost gets 
+                                            !filled from 10 to idx-10 for brk2,
+                                            !20 to idx-10 for brk3, and so on.
          vecCost = 9999
          DO j = potIdxBegin, potIdxEnd           ! j=10 to idx-10
             vecCost(j) = matCost(nbs-1,j) + RSStri_full(j+1,idx)
@@ -375,7 +447,8 @@ IMPLICIT NONE
    END DO
    !Note 1:  add the cost of segment(idx+1, Sfinal)
    do idx = numBrks*brkpt_spacing,Sfinal-brkpt_spacing
-       matCost(numBrks, idx) = matCost(numBrks, idx) + RSStri_full(idx+1, Sfinal) !This is the last row-- what happens for numBrks == 1
+       !This is the last row-- what happens for numBrks == 1
+       matCost(numBrks, idx) = matCost(numBrks, idx) + RSStri_full(idx+1, Sfinal) 
    enddo
    tmp = MINLOC(matCost(numBrks,numBrks*brkpt_spacing:Sfinal-brkpt_spacing)) !the first break point
    last_brkpt_pos = tmp(1) + numBrks *brkpt_spacing -1
@@ -392,11 +465,42 @@ END SUBROUTINE buildDynPrTable
 
 SUBROUTINE getBrkPts(vec_timestamps, vec_obs, model, deg, numBrks, vec_breakpoints, &
                 work_arr, RSStri_full, Sfinal)
-! work_arr is needed in recres.
-! RSStri_full is needed in buildDynPrTable.
 USE REAL_PRECISION
 USE globalVars_par
 IMPLICIT NONE
+!    Steps 1.2 & 2.2 of the pseudocode.
+!    
+!    An upper triangular matrix named RSStri_full is built here.
+!    RSStri_full contains all required cumsums.
+!    Then, RSSTri_full is sent to buildDynPrTable to
+!          (i)  build the cost matrix, fill in mastPos, and subsequently, 
+!          (ii) place the breakpoints.
+!    buildDynPrTable returns both matPos and the breakpoints.
+!    Note: We don't do anything with matPos here. We allocate it here and pass it 
+!          to buildDynPrTable only to alleviate the number of allocations/deallocations.
+!
+!    Overall idea: If the breakpoints are correctly placed, the cumsum value of the 
+!    residuals in the resulting intervals will be low, compared to the fits that
+!    are crossing over the breakpoints.
+!    
+!    Helper functions:
+!        recres, cumsum, buildDynPrTable
+!    
+!    Inputs:
+!        vec_timestamps: x-coordinates
+!        vec_obs:        y-coordinates (observations)
+!        model:          string of length 6.
+!                        Takes values "linear" or "harmon" only
+!        deg:            in case of harmonic fit, no. of harmonics to be used.
+!        numBrks:        number of breakpoints being sought
+!        work_arr:       needed in recres.
+!        RSSTri_full:    An upper triangular matrix that will be used to store the
+!                        costs (residual cumsums).
+!                        We accept it as input arg only to alleviate the number of allocations.
+!        Sfinal:         len(vec_timestamps)
+!        
+!    Output:
+!        vecBrkPts:    A vector of breakpoints
 
    !numBrks is the number of internal breakpoints. 
    !vec_breakpoints is of dimension numbrks,i.e., t1 & tS are NOT listed in it.
@@ -421,14 +525,10 @@ IMPLICIT NONE
       PRINT *, "model not supported"
    ENDIF
 
-!   print *, 'in getBrkPts, num_valid_obs =', Sfinal, 'i.e.', SIZE(vec_obs,1), 'i.e.', SIZE(vec_timestamps,1)
-!   print *, 'in getBrkPts, size of RSStri_full=', SIZE(RSStri_full, 1), SIZE(RSStri_full, 2)
    RSStri_full(1:Sfinal,1:Sfinal) = 0
    brkpt_spacing = INT(FLOOR(Sfinal*bfast_brkptSpacingProp))
-!   print *, 'brkpt_spacing =', brkpt_spacing
    DO i = 1,Sfinal-brkpt_spacing+1 
       recResidual = 0 
-      !print *, model, 'fit in (', i, ',', Sfinal,')'
       CALL recres(vec_timestamps(i:Sfinal), vec_obs(i:Sfinal), &
                &      ncols+1, model, deg, work_arr, recResidual(i:Sfinal),  &
                &      Sfinal-i+1, ncols )
@@ -444,6 +544,16 @@ END SUBROUTINE getBrkPts
 
 SUBROUTINE hammingDistance(vec1, vec2, dist)
 IMPLICIT NONE
+!    Hamming distance calculation.
+!    Right now only BFAST is using this.
+!    In future, if more algorithms or the polyalgorithm itself use hamming distance, 
+!    then move this routine to commons.py.
+!    
+!    Inputs:
+!        Two arrays 
+!    
+!    Outputs:
+!        dist:  the hamming distance between the two input vectors.
 
    INTEGER, INTENT(IN) :: vec1(:), vec2(:)
    INTEGER :: i, len_vec1, len_vec2
@@ -489,4 +599,4 @@ IMPLICIT NONE
 
 END SUBROUTINE hammingDistance
 
-END MODULE utilities_sept16_par
+END MODULE utilities_bfast

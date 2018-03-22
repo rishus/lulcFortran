@@ -6,6 +6,10 @@ USE globalVars_par
 USE REAL_PRECISION
 IMPLICIT NONE
 
+!*****************************************************************************80
+!
+! std CALCULATES THE STANDARD DEVIATION FOR THE DATA IN VARIALBLE data
+!
    REAL(KIND=R8), INTENT(IN) :: data(:)
    INTEGER  :: m, i
    REAL(KIND=R8) :: mean, var, sigma
@@ -31,19 +35,19 @@ IMPLICIT NONE
 RETURN
 END FUNCTION std
 
-! THIS SUBROUTINE CALCULATES THE LEAST SQUARES FIT FOR THE DATA
-! GIVEN BY VECTORS T AND U.
-!----------------------------------------------------------------
-! Input parameters:
-! T
-! U
-! K
-! XBARLIMIT1
-! M
-! Output parameters:
-! ALPHA_STAR
-!---------------------------------------------------------------
 SUBROUTINE lsfit(t, u, K, alphaStar, IERR, work_arr)
+!*****************************************************************************80
+! lsfit CALCULATES THE LEAST SQUARES FIT FOR THE DATA GIVEN BY VECTORS T AND U
+!
+! Input parameters:
+!      t:            x-coordinates
+!      u:            y-coordinates (observations)
+!      K:            number of harmonics
+!
+! Output parameters:
+!      alphaStar:    2K+1 harmonic regression coefficients after refining
+!      IERR:         
+!---------------------------------------------------------------
 USE globalVars_par
 USE REAL_PRECISION
 IMPLICIT NONE
@@ -58,6 +62,9 @@ IMPLICIT NONE
    REAL(KIND=R8)       :: sigma, tau1, detR1, detXtX
    REAL(KIND=R8), DIMENSION(size(t,1),2*K+1) :: X
    REAL(KIND=R8), DIMENSION(:),  ALLOCATABLE :: work
+   ! the variables below may be useful if true conditioning of the matrix
+   ! is to be tested. Determinant is not quite the correct indicatior
+   ! of matrix conditioning.
    !INTEGER             :: svd_lwork, svd_liwork, nlvl, SMLSIZ, rank
    !REAL(KIND=R8)       :: rcond
    !REAL(kind=r8), DIMENSION(:,:), ALLOCATABLE :: svd_tmp_mat
@@ -83,7 +90,6 @@ IMPLICIT NONE
    M = size(t, 1)
 
    ncols = 2*K + 1
-!   ALLOCATE (alphaStar(ncols))  ! alphaStar is a global variable. this allocation happens for good.
 
    X(:,1) = (/ (1, i = 1,M) /)
    DO j = 1,K
@@ -93,19 +99,20 @@ IMPLICIT NONE
    ENDDO
 
    !(1) checking the determinant (conditioning!) of the matrix
-   lwork = min(M, int(ncols, kind=4)) +  max(max(M, INT(ncols, KIND=4)), 1) * nb  !was originally designed for dgels
-   ALLOCATE (work(lwork))                               !TODO: cross check if dgeqrf needs a different value
+   !was originally designed for dgels
+   lwork = min(M, int(ncols, kind=4)) +  max(max(M, INT(ncols, KIND=4)), 1) * nb  
+   ALLOCATE (work(lwork))  !TODO: cross check if dgeqrf needs a different value
    work_arr%tmp_mat(1:M, 1:ncols) = X
    mn = min(M, int(ncols,kind=4))
-   CALL dgeqrf(M, INT(ncols, KIND=4), work_arr%tmp_mat(1:M, 1:ncols), M, work_arr%rtmp_vec1(1:mn), &
-                &     work(1:lwork), lwork, info)
-       ! determinant of R.
+   CALL dgeqrf(M, INT(ncols, KIND=4), work_arr%tmp_mat(1:M, 1:ncols), M, &
+               work_arr%rtmp_vec1(1:mn),  work(1:lwork), lwork, info)
+   ! determinant of R.
    detR1 = 1
    DO i = 1,mn   ! len(u) > ncols, so mn = min(M,ncols) = ncols, for us.
       detR1 = detR1 * work_arr%tmp_mat(i,i)
    END DO
-       ! X = QR = [Q1, Q2]*[R1; 0] = Q1R1, Q, Q1, Q2 orthogonal. So, det(XtX) = det(R1tR1).  
-       ! R1 ix ncols x ncols. So det(R1tR1) = det(R1)*det(R1).
+   ! X = QR = [Q1, Q2]*[R1; 0] = Q1R1, Q, Q1, Q2 orthogonal. So, det(XtX) = det(R1tR1).  
+   ! R1 ix ncols x ncols. So det(R1tR1) = det(R1)*det(R1).
    detXtX = detR1 * detR1
    IF (abs(detXtX) < 0.001) THEN 
         alphaStar = (/ (-2222, i=1,ncols) /)
@@ -161,10 +168,42 @@ END SUBROUTINE LSFIT
 
 SUBROUTINE getResiduals(alphaStar, t, D, K, M, ierr_lsfit, & 
                       sigmaIhat, EstarAlphastar, Ibar, sz, nullFlag, work_arr)
+!*****************************************************************************80
+!Residuals calculation for Step 1 of the pseudocode.
+!    Inputs:
+!        alphaStar:         refined coefficients determined with repeated regression
+!        t:                 the vector of present timepoints
+!        D:                 the vector of present observations
+!        K:                 number of harmonics used
+!        M:                 length of training period
+!        ierr_lsfit:        error flag (takes value 0 or 1) from lsfit.
+!                           1 if matrix determinant was too small, or, 
+!                             if outlier free training data is too small less, or,
+!                             if error vector Ealpha had any value of too large magnitude.
+!                           0 otherwise.
+!        xbarlimit1:        parameter to determine 'outliers' in the initial 
+!                           phase of determining 
+!                           refined coefficients.
+!        xbarlimit2:        Parameter to calculate the threshold to decide outliers
+!                           when refined coefficients are being used.
+!        
+!    Outputs:
+!        IBar:              array
+!                           of indices of outlier-free time series
+!        sigmaIhat:         scalar.
+!                           standard deviation of outlier-free training data errors
+!        nullFlag:          Booloean.
+!                           True if further processing cannot be carried out. 
+!                           (E.g., if outlier-free-training data is of length
+!                           less than 2K+1, or, if ierr_lsfit was 1.).
+!                           False otherwise.
+!        EstarAlphastar:    array of residuals (errors) for the entire time series
+!        sz:                Only the first sz elements of Ibar are to be used.
+!                           (Ibar was allocated in the main code to avoid
+!                           local allocations etc.)
+    
 USE globalVars_par
 USE REAL_PRECISION
-! t is the vector of present timepoints
-! D is the vector of present observations
 IMPLICIT NONE
    INTEGER, INTENT(IN) :: M, ierr_lsfit
    INTEGER(kind=2), INTENT(IN) :: K
@@ -178,13 +217,9 @@ IMPLICIT NONE
    REAL(KIND=R8)     :: sigma2, tau1, tau2 
    INTEGER     :: ncols, i, j, ccol, szhat, S
 
-
    IF (ierr_lsfit == 1) then
        nullFlag = .TRUE.
        sigmaIhat = 0
-!       ALLOCATE (Ibar(1), EstarAlphastar(1))
-!       Ibar(1) = 0
-!       EstarAlphastar(1) = 0
        RETURN
    ENDIF
 
@@ -197,18 +232,15 @@ IMPLICIT NONE
      work_arr%tmp_mat(1:S, ccol) = (/ (COS(dble(j) * t(i)), i=1,S) /)
    ENDDO
 
-   work_arr%rtmp_vec1(1:S) = D - MATMUL(work_arr%tmp_mat(1:S,:), alphaStar)  ! EstarAlphastar  ! to be returned, will be needed later 
+   ! EstarAlphastar  ! to be returned, will be needed later 
+   work_arr%rtmp_vec1(1:S) = D - MATMUL(work_arr%tmp_mat(1:S,:), alphaStar)  
    if (MAXVAL(work_arr%rtmp_vec1(1:M)) > 10.0E6 .OR. &
            MINVAL(work_arr%rtmp_vec1(1:M)) < -10.0E6) THEN
        nullFlag = .TRUE.
        sigmaIhat = 0
-!       ALLOCATE (Ibar(1), EstarAlphastar(1))
-!       Ibar(1) = 0
-!       EstarAlphastar(1) = 0
        RETURN
    endif
 
-!   ALLOCATE (EstarAlphastar(S))
    EstarAlphastar(1:S) = work_arr%rtmp_vec1(1:S)
 
    if (M == 0) then
@@ -231,8 +263,6 @@ IMPLICIT NONE
    IF (szhat <= ncols) THEN
       nullFlag = .TRUE.
       sigmaIhat = 0
-!      ALLOCATE (Ibar(1))   !just a placeholder. Will never really get used
-!      Ibar(1) = 0
       RETURN
    ENDIF
    DO i = M+1, S
@@ -242,7 +272,6 @@ IMPLICIT NONE
       ENDIF
    ENDDO
 
-!   ALLOCATE(Ibar(sz))
    Ibar(1:sz) = work_arr%itmp_vec1(1:sz)
 
    work_arr%rtmp_vec2(1:szhat) = (/ (work_arr%rtmp_vec1(work_arr%itmp_vec2(i)), i=1,szhat) /)   !Estar_alphastar_Ihat 
@@ -252,6 +281,17 @@ END SUBROUTINE getResiduals
 
 
 SUBROUTINE getControlLimits(sigma, len_Ibar, tau)
+!*****************************************************************************80
+!    Step 2 of the pseudocode.
+!    
+!    A control chart is built.
+!    Inputs:
+!        sigma, len_Ibar:  Statistical information about the 
+!                          'outlier-processed' timeseries.
+!
+!    Output:
+!        tau:    control chart limits vector.
+
 USE globalVars_par
 USE REAL_PRECISION
 IMPLICIT NONE
@@ -263,7 +303,6 @@ IMPLICIT NONE
   
    !print *, "In SUBROUTINE getControlLimits"
 
-   !ALLOCATE(tau(len_Ibar))
    sl = sigma*L
    f = lam/(2.0 - lam)
    a = 1 - lam
@@ -277,6 +316,19 @@ END SUBROUTINE getControlLimits
 
 
 SUBROUTINE getEWMA(Ibar, EstarAlphastar, z, len_Ibar)
+!*****************************************************************************80
+!    Step 3 of the pseudocode.
+!    
+!    EWMA of residuals resulting from harmonic regression is calculated.
+!
+!    Inputs:
+!        Ibar:               indices of the outlier free timeseries
+!        Estar_alphastar:    numpy array of the residuals of the time series
+!        len_Ibar:           length of Ibar
+!
+!    Output:
+!        z:                  EWMA of residuals resulting from harmonic regression
+
 USE globalVars_par
 USE REAL_PRECISION
 IMPLICIT NONE
@@ -294,7 +346,6 @@ IMPLICIT NONE
   endif
 
   !print *, "In SUBROUTINE getEWMA"
-  !ALLOCATE (z(len_Ibar))
   
   z = (/ (0, i=1,len_Ibar)  /)
   z(1) = EstarAlphastar(Ibar(1))
@@ -307,6 +358,19 @@ IMPLICIT NONE
 END SUBROUTINE getEWMA
 
 SUBROUTINE flagHistory(z, tau, f, len_Ibar)
+!*****************************************************************************80
+!    Step 4, flag history calculation of the pseudocode.
+!    
+!    Flag history is claculated here, based on the 'persistence' of any nonzero signals.
+!    
+!    Inputs:
+!        z:         EWMA of residuals resulting from harmonic regression
+!        tau:       Control chart vector
+!        len_Ibar:  lenght of Ibar (i.e., number of indices of outlier free timeseries)
+!
+!    Output:
+!        f:     flag history
+
 USE REAL_PRECISION
 IMPLICIT NONE
 
@@ -316,16 +380,9 @@ IMPLICIT NONE
   REAL(KIND=R8), INTENT(INOUT) :: f(:)
 
   !print *, "In SUBROUTINE flagHistory"
-  !ALLOCATE (f(len_Ibar))
+
   f = (/ (0, i=1,len_Ibar) /)
   DO i=1,len_Ibar
-!     IF (z(i) > 0) THEN
-!        tmp = 1
-!     ELSEIF (z(i) < 0) THEN
-!        tmp = -1
-!     ELSE
-!        tmp = 0
-!     ENDIF
      IF (z(i) /= 0) THEN
         tmp = SIGN(1, z(i))
      ELSE
@@ -341,20 +398,27 @@ IMPLICIT NONE
 END SUBROUTINE flagHistory
 
 SUBROUTINE persistenceCounting(f, persistenceVec, work_arr, len_Ibar)
+!*****************************************************************************80
+!    Step 4, persistence calculation of the pseudocode
+!    Inputs:
+!        f:              the flag history
+!        len_Ibar:       no. of points in outlier free time series
+!        
+!    Output:
+!        persistenceVec: list of integers
+!                        each element indicates how long the current sign (+ or -) lasted.
+
 USE REAL_PRECISION
 USE globalVars_par
 IMPLICIT NONE
 
-  !INTEGER, DIMENSION(:), INTENT(IN) :: f
   REAL(KIND=R8), INTENT(IN) :: f(:)
   INTEGER, INTENT(IN) :: len_Ibar
-  !INTEGER, DIMENSION(:),  INTENT(INOUT)  ::  persistenceVec
   REAL(KIND=R8), INTENT(INOUT)  ::  persistenceVec(:)
   type(ewmaWA), intent(inout) :: work_arr
   INTEGER :: imax, i, tmp3hi, tmp3lo  !,mx
   REAL(KIND=R8) :: mx 
   
-  !print *, "In SUBROUTINE persistenceVec"
   ! sign of f
   DO i=1,len_Ibar
      IF (f(i) > 0) THEN
@@ -367,7 +431,7 @@ IMPLICIT NONE
   ENDDO
 
   ! Count consecutive dates in which directions are sustained
-  work_arr%itmp_vec2(1:len_Ibar) = (/ (0, i=1,len_Ibar)  /)   ! tmp3 (in R), sustained (in python)
+  work_arr%itmp_vec2(1:len_Ibar) = (/ (0, i=1,len_Ibar)  /)  
   DO i = 1,len_Ibar
     tmp3lo = 0
     tmp3hi = 0
@@ -388,7 +452,6 @@ IMPLICIT NONE
     work_arr%itmp_vec2(i) = tmp3lo + tmp3hi - 1
   ENDDO
 
-  !ALLOCATE (persistenceVec(len_Ibar))
   persistenceVec = (/ (0, i=1,len_Ibar)  /)  ! tmp4
   mx = 0
   imax = -1
@@ -409,11 +472,29 @@ IMPLICIT NONE
 END SUBROUTINE persistenceCounting
 
 SUBROUTINE summarize(pixel_x, pixel_y, jumpValsOrgSten, presInd, method, Sfinal, S)
+!*****************************************************************************80
+!    Summarizing.
+!    
+!    Missing data points are addressed here.
+!    Breakpoints are determined here.
+!    
+!    Inputs:
+!        pixel_x:        global index
+!        pixel_y:
+!        jumpValsOrgSten:
+!        presInd:
+!        method:         string ('annual_mean' or 'on-the-fly')
+!                        For getting breakpoints, choose 'on-the-fly'
+!    
+!    Output:
+!        ewma_summary:   global 3D array
+!                        positions (pixel_x, pixel_y, :) are filled up
+        
 USE REAL_PRECISION
 USE globalVars_par
 IMPLICIT NONE
    
-  INTEGER(KIND=8) :: pixel_x, pixel_y
+  INTEGER(KIND=8), INTENT(IN) :: pixel_x, pixel_y
   INTEGER(KIND=2), INTENT(IN) :: jumpValsOrgSten(:), presInd(:)
   INTEGER, INTENT(IN) ::  method, S
   INTEGER :: i, tt, Sfinal
@@ -455,6 +536,7 @@ IMPLICIT NONE
   INTEGER :: i, tt
 
   !print *, "In SUBROUTINE summarize_residuals"
+
   tt = 1
   DO i = 1, Sfinal
      ewma_residuals(presInd(i), pixel_x, pixel_y) = residualsPresentSten(tt)

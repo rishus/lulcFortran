@@ -6,6 +6,21 @@ CONTAINS
 SUBROUTINE regress(x, y, work_arr, fit, slope, const)
 USE globalVars_par
 IMPLICIT NONE
+!    Least squares regression.
+!    Helper functions:
+!        LAPACK routine DGELS
+!    Inputs:
+!        t:        x-coordinates
+!        y:        y-coordinates (observations)
+!        model:   'linear' or 'harmon'
+!                 'harmon' will do harmonic regression.
+!        K:        number of harmonics needed in case of harmonic regression.
+!                  in case of linear regression, simply pass 0
+!        
+!    Outputs:
+!        coeffs:   list of fit coefficients
+!        fit:      least squares fit
+        
    REAL(KIND=R8), INTENT(IN) :: x(:), y(:)
    INTEGER :: ncols, m, i, lwork, info, DeAllocateStatus
    REAL(KIND=R8), DIMENSION(:,:),  ALLOCATABLE :: A(:,:)
@@ -48,9 +63,13 @@ END SUBROUTINE regress
 SUBROUTINE despike(vals, Sfinal, vec_obs_updated)
 USE globalVars_par
 IMPLICIT NONE
+!    Step 1 in the pseudocode:
+!        isolated, single spikes in observvations are assumed to be faulty observations.
+!        These are detected and corrected divided differences.
+!        
+!    Output:
+!        vec_obs_updated:  numpy array of corrected observations.
 
-   ! parameters needed in this routine
-   ! ltr_despikeTol is a global variable.
    REAL(KIND=R8), INTENT(IN) :: vals(:)
    INTEGER, INTENT(IN) :: Sfinal
    INTEGER :: ctr, i, prop_ind_tmp(1:1), ctr2, prop_ind(Sfinal)
@@ -65,7 +84,7 @@ IMPLICIT NONE
    ENDIF
    prop = 1.0  ! ltr_despikeTol + 1.0 : TODO check this
    ctr = 1
-   !fwd_diffs, bkwd_diffs, central_diffs (1) and (Sfinal) never really get used.
+   !fwd_diffs, bkwd_diffs, central_diffs indices (1) and (Sfinal) never really get used.
    DO WHILE ((prop.GT. ltr_despikeTol) .and. (ctr <= Sfinal))
       fwd_diffs(1) = 0
       fwd_diffs(2:Sfinal) = (/(vec_obs_updated(i+1)-vec_obs_updated(i), &
@@ -120,10 +139,22 @@ SUBROUTINE scoreSegments(vec_timestamps, vec_obs, vertices, &
                                    vertexCount, leny, segmentScores, work_arr)
 USE globalVars_par
 IMPLICIT NONE
+!    Step 2_support in the pseudocode:
+!        For each interval determined by the vertices given in 'vertices',
+!        calculate the least squares fit. 
+!        Then calculate the MSE for that interval.
+!        The score of a segment (or interval) is the MSE with that fit.
+!    
+!    Input: 
+!        timestamps, observations, vertices, and currNumVerts = len(vertices)
+!        
+!    Output:
+!        segmentScores: a list of MSEs, one MSE per interval.
+!
+! Global variables needed here:
+! ltrWA deifinition
+! the score of a segment is basically the error in that fit.
 
-  ! Global variables needed here:
-  ! ltrWA deifinition
-  ! the score of a segment is basically the error in that fit.
   INTEGER, INTENT(IN) :: vertexCount, vertices(:), leny
   REAL(KIND=R8), INTENT(IN) :: vec_timestamps(:), vec_obs(:)
   TYPE(ltrWA) :: work_arr
@@ -169,8 +200,20 @@ SUBROUTINE splitSeries(vec_timestamps, vec_obs, numObs, endSegment, &
                            distTest, ok, maxdiffInd, work_arr)
 USE globalVars_par
 IMPLICIT NONE
-  ! Global variables needed:
-  ! ltrWA definition 
+!    Step 2_support in the pseudocode:
+!        least squares fit is done on the current interval.
+!        pointwise error is calculated.
+!        the index corresponding to maximum pointwise error is returned.
+!        
+!    Helper functions:
+!        regress
+!
+!    Output:
+!        maxDiffInd:  the index corresponding to maximum pointwise error is returned.
+!
+!    Global variables needed:
+!        ltrWA definition 
+!
 ! given an x and y split the series into two smaller segments. 
 ! However, invoke a rule where there can be no series where the value decreases
 ! (implication of recovery) for only 1 or 2 years --
@@ -222,18 +265,40 @@ SUBROUTINE getInitVerts(vec_timestamps, vec_obs, numObs, mpnp1, &
                     initVertices, initVertCount, work_arr)
 USE globalVars_par
 IMPLICIT NONE
-   ! Global variables needed:
-   ! ltrWA definition
-   ! ltr_distwtfactor
-   !TODO: 2. I THINK the pseudocode wants us to calculate MSE only in the newest
-   !         interval found. But this subroutine finds MSE of all existing
-   !         intervals. The latter sounds like a much better idea. 
-   !vec_timestamps, vec_obs: arrays of length numObs, allocated smwhere above in 
-   !                         the calling program
-   !initVertices:            array of length maxCount, allocated in the calling program.
-   !mpnp1:                   maximum number of (initial) vertices allowed
-   !initVertCount:           actual number of (initial) vertices found. 
-   !                         initVertCount <= mpnp1
+!    Step 2 of the pseudocode:
+!        Using least squares regression iteratively, determine a set of initial breakpoints.
+!    
+!    Approach: For the 'current' vertices, calculate the MSE for each segment.
+!              Take the ONE interval with HIGHEST MSE and split it into two at
+!              the point of highest deviation. Then calculate the MSEs again.
+!              Continue iteratively until numMaxVerts vertices are found.
+!
+!    Helper functions:
+!        scoreSegments
+!        splitSeries
+!        
+!    Input: 
+!        vec_timestamps: array timepoints (x-coordinates) to be used.
+!        vec_obs:        array of observations (y-coordinates).
+!        mpnp1:          maximum number of segments desired.
+!        distwtfactor:   user defined parameter that decided whether
+!                        disturbance in initial segments
+!                        should be considered or not.
+!    Output:
+!        vertices:  a list of indices representing the initial breakpoints to be used.
+!
+!    Global variables needed:
+!    ltrWA definition
+!    ltr_distwtfactor
+!   TODO: 2. I THINK the pseudocode wants us to calculate MSE only in the newest
+!            interval found. But this subroutine finds MSE of all existing
+!            intervals. The latter sounds like a much better idea. 
+!   vec_timestamps, vec_obs: arrays of length numObs, allocated smwhere above in 
+!                            the calling program
+!   initVertices:            array of length maxCount, allocated in the calling program.
+!   mpnp1:                   maximum number of (initial) vertices allowed
+!   initVertCount:           actual number of (initial) vertices found. 
+!                            initVertCount <= mpnp1
 
    REAL(KIND=R8), INTENT(IN) :: vec_timestamps(:), vec_obs(:)
    INTEGER, INTENT(IN) :: mpnp1, numObs
@@ -323,8 +388,6 @@ END SUBROUTINE getInitVerts
 SUBROUTINE angleDiff(xcoords, ycoords, yrange, distweightfactor,  angDiff)
 USE globalVars_par
 IMPLICIT NONE
-! Global variables needed here:
-! Pi ... just one parameter
 !
 ! Note that this is NOT the same as compareAngles. compareAngles gets used 
 ! later, separately, while collapsing segments in landtrendr_point_run.
@@ -337,6 +400,9 @@ IMPLICIT NONE
 !       that precede a disturbance.  If set to 0, the angle difference is
 !       passed straighton.
 !   4. If disturbance (positive), give more weight
+!
+! Global variables needed here:
+! Pi ... just one parameter
 
   REAL(KIND=R8), INTENT(IN) :: xcoords(:), ycoords(:), yrange 
   REAL(KIND=R8) :: angle1, angle2, mx, mn, scaler, distweightfactor
@@ -418,17 +484,32 @@ SUBROUTINE cullByAngleChange(vec_timestamps, vec_obs, numObs, origVerts, nOrigVe
                 &  finalVerts, nFinalVerts)
 USE globalVars_par
 IMPLICIT NONE
-   ! Global parameters being used:
-   ! ltr_mu  
-   ! ltr_distwtfactor 
-   !
-   ! Culls by angle change
-   !orgiVerts:  origVerts(1:nOrigVerts) is the set of starting vertices,
-   !            including 1st and last vertices.
-   !mu:         maximum number of segments allowed   
-   !nu:         number of extra vertices allowed on top of mu+1 while 
-   !            forming the initial stencil
-   !finalVerts: finalVerts(1:nFinalVerts) is the final set of vertices we will use
+!    Step 3 of the pseudocode:
+!        Drop 'insignificant' vertices.
+!        Specifically, if the angle formed at a vertex is almost zero (or, 180),
+!        that vertex is not 'important' and is dropped.
+!        
+!    Input: 
+!        vec_timestamps, vec_obs: numpy arrays.
+!        startingVerts:           list of initial vertices.
+!
+!    Helper function:
+!        angleDiff
+!        
+!    Output:
+!        currVerts:  an updated list of vertices 
+!
+!    Global parameters being used:
+!    ltr_mu  
+!    ltr_distwtfactor 
+!   
+!    Culls by angle change
+!   orgiVerts:  origVerts(1:nOrigVerts) is the set of starting vertices,
+!               including 1st and last vertices.
+!   mu:         maximum number of segments allowed   
+!   nu:         number of extra vertices allowed on top of mu+1 while 
+!               forming the initial stencil
+!   finalVerts: finalVerts(1:nFinalVerts) is the final set of vertices we will use
 
    REAL(KIND=R8), INTENT(IN) :: vec_timestamps(:), vec_obs(:)
    INTEGER, INTENT(IN) :: origVerts(:), nOrigVerts, numObs
@@ -461,7 +542,6 @@ IMPLICIT NONE
    ! calculate all angles (interior vertices only)
    currVerts = origVerts
    angles = 0
-!   print *, currVerts(1:nVerts)
    DO i = 2, nVerts - 1
       ! the first element in angles cors to the angle
       ! between the first segment and the second segment
@@ -470,7 +550,6 @@ IMPLICIT NONE
                      yrScaled, ltr_distwtfactor, angles(i-1))
                                                                  
    END DO
-!   print *, angles(1:nVerts-2)
 
    !Now go through and iteratively remove them
    endVertMarker = nVerts              !keeps track of how many good ones are left 
@@ -483,10 +562,6 @@ IMPLICIT NONE
       itmp = MINLOC(angles(1:endAngMarker))
       minAngInd = itmp(1)
       minVertInd = minAngInd + 1          
-!      print *, '---- i = ', i, '--------'
-!      print *, 'currVerts', currVerts(1:endVertMarker)
-!      print *, 'angles', angles(1:endAngMarker)
-!      print *, '                     '
 
       IF (minVertInd .EQ. (endVertMarker-1)) THEN
          ! drop this vertex. update the endVertMarker
@@ -517,20 +592,6 @@ IMPLICIT NONE
 
       ELSE
          ! drop this vertex. update the endVertMarker
-!         if (minVertInd >= endVertMarker) then
-!                 print *,"bad condition"
-!                 stop
-!         end if 
-!         if (minVertInd >= nVerts) then
-!                 print *,"bad condition 1"
-!                 stop
-!                 
-!         end if 
-!         print *, 'minVertInd =', minVertInd
-!         print *, 'endVertMarker = ', endVertMarker
-!         print *, 'minAngInd', minAngInd
-!         print *, 'endAngMarker =', endAngMarker
-!         print *, '            '
          currVerts(minVertInd:endVertMarker-1) = currVerts(minVertInd+1:endVertMarker) 
          endVertMarker = endVertMarker - 1
          ! drop this angle. update the endAngMarker
@@ -543,7 +604,6 @@ IMPLICIT NONE
                         & yrScaled, ltr_distwtfactor, angles(minAngInd-1))
 
          !recalculate the angle to the right of the one taken out:
-!         print *, vec_timestamps( currVerts(minVertInd-1:((minVertInd+2)-1)) )
          CALL angleDiff(vec_timestamps( currVerts(minVertInd-1:((minVertInd+2)-1)) ), &
                       & yscaled( currVerts(minVertInd-1:((minVertInd+2)-1)) ), &
                       & yrScaled, ltr_distwtfactor, angles(minAngInd))
@@ -559,9 +619,18 @@ END SUBROUTINE cullByAngleChange
 
 SUBROUTINE anchoredRegression(xvals, yvals, numPts, yanchorval, fit, slope)
 IMPLICIT NONE
-  !the idl codes have this routine in helper directory.
-  !do a simple least-squares regression, but anchor it so that the 
-  !zeroth element has the value "yanchorval"
+!    Step 4_support:
+!        
+!        Left end is fixed to yanchorval.
+!        Linear regression is then done to determine the slope of the fit in
+!        this current interval.
+!        
+!    Output:
+!        slope: slope of the fit in current interval
+!        fit:   fitted values.
+!    the idl codes have this routine in helper directory.
+!    do a simple least-squares regression, but anchor it so that the 
+!    zeroth element has the value "yanchorval"
 
   REAL(KIND=R8), INTENT(IN) :: xvals(:), yvals(:), yanchorval
   INTEGER, INTENT(IN) :: numPts
@@ -582,7 +651,8 @@ END SUBROUTINE anchoredRegression
 
 SUBROUTINE pickBetterFit(vec_obs, fit1, fit2, choice)
 IMPLICIT NONE
-  !This assumes same number of parameters to have created the yfits
+!    Step 4_support    
+!    This assumes same number of parameters to have created the yfits
   REAL(KIND=R8), INTENT(IN) :: vec_obs(:), fit1(:), fit2(:)
   REAL(KIND=R8) :: mse1, mse2
   INTEGER :: choice
@@ -599,8 +669,15 @@ END SUBROUTINE pickBetterFit
 
 SUBROUTINE fillLine(x, xEndpts, yEndpts, filledLine, slope)
 IMPLICIT NONE
-  !xEndpts, yEndpts are just 2 element arrays consisting of the starting
-  !and ending points of the desired line
+!  Interpolates
+!  Inputs:
+!       x:
+!       xEndpts:      2 element array consisting of the starting and ending x-coords
+!       yEndpts:      2 element array consisting of the starting and ending y-coords
+!  Outputs:
+!       filledLine:
+!       slope:
+
   REAL(KIND=R8), INTENT(IN) :: x(:), xEndpts(:), yEndpts(:)   
   REAL(KIND=R8), DIMENSION(:), ALLOCATABLE :: xvals
   INTEGER :: i, maxIdx, minIdx
@@ -631,17 +708,31 @@ SUBROUTINE findBestTrace(vec_timestamps, vec_obs, numObs, &
                          currVerts, nVerts, nSegs, bt, work_arr)
 USE globalVars_par
 IMPLICIT NONE
-! Global parameters needed here:
-! ltr_WA ... it is an inout array.
-! The definition for bestTrace.
+!    Step 4 of the pseudocode:
+!        
+!    For each interval, two fits are cosidered: (i) anchored regression, and 
+!                       (ii) end-points-connecting line.
+!        The fit with lesser MSE is chosen as the final fit.
+!        (In my opinion, anchored regression will always give lower MSE.)
+!        
+!    Helper functions:
+!        fillLine, regress, anchoredRegression, pickBetterFit.
+!    
+!    Outputs:
+!        bt:   A derived variable of type bestTrace
+!              Contains vertices, vertYVals, yFitVals, and slopes of the calcualted model.
 !
-!Given set of vertices (x-vals), find the the combo of vertex y-vals
-!that results in best fit for each segment x and y are the original values.
-!vertices: is the list of vertices (in terms of array position, not the x-value.
-!nVerts:   is the number of vertices -- passed in to avoid allocation.
-!nSegs:    is the number of segments -- passed in just to save calc time.
-!This is used only on the first run, with all of the segments.  From
-!here on out, we just eliminate each one and calc the vals
+!    Global parameters needed here:
+!    ltr_WA ... it is an inout array.
+!    The definition for bestTrace.
+!
+!    Given set of vertices (x-vals), find the the combo of vertex y-vals
+!    that results in best fit for each segment x and y are the original values.
+!    vertices: is the list of vertices (in terms of array position, not the x-value.
+!    nVerts:   is the number of vertices -- passed in to avoid allocation.
+!    nSegs:    is the number of segments -- passed in just to save calc time.
+!    This is used only on the first run, with all of the segments.  From
+!    here on out, we just eliminate each one and calc the vals
 
   REAL(KIND=R8), INTENT(IN) :: vec_timestamps(:), vec_obs(:)
   INTEGER, INTENT(IN) :: currVerts(:)
@@ -718,8 +809,20 @@ SUBROUTINE calcFittingStats(vec_obs, vec_fitted, nObs, nParams, modelStats)
 USE globalVars_par
 USE stat_utils
 IMPLICIT NONE
-  ! Global parameters needed here:
-  ! The definition of the derived type fittingStats_ltr
+!    Step 5 of the pseudocode:
+!        given the (i) observations, and (ii) a linear fit model get the 
+!        'goodness of fit'.
+!        F-statistics or p-of-F value may be used.
+!        
+!    Inputs:
+!        vec_obs:       
+!        nObs, nParams: To facilitate automatic allocations
+!    Output:
+!        modelStats:    A derived type variable with a bunch of statistics on the model
+!
+!    Global parameters needed here:
+!    The definition of the derived type fittingStats_ltr
+!
   REAL(KIND=R8), INTENT(IN) :: vec_obs(:), vec_fitted(:)
   INTEGER, INTENT(IN) :: nParams, nObs 
   REAL(KIND=R8), DIMENSION(nObs) :: observed, fitted
@@ -730,17 +833,8 @@ IMPLICIT NONE
   REAL :: Ix, pOfF
   INTEGER :: dof1, dof2
   TYPE(fittingStats_ltr), INTENT(OUT) :: modelStats
-!  REAL :: HUGE
-!  EXTERNAL :: HUGE
-!   INTERFACE
-!      SUBROUTINE bratio( a, b, x, y, w, w1, ierr )
-!      USE REAL_PRECISION
-!      real :: a, b, x, y, w, w1
-!      integer :: ierr
-!      END SUBROUTINE bratio
-!   END INTERFACE
 
-  infinity = 1000000000000.0000005   !HUGE(1000000000000.0000005)
+  infinity = 1000000000000.0000005 
   nPred = SIZE(vec_fitted)
   IF (nObs /= nPred) THEN
      ok = 0
@@ -801,7 +895,7 @@ IMPLICIT NONE
             .or. (dof1 == 0))  THEN
            f = 0.0001
         ELSE
-           f = X1_squared * dof2 / ( X2_squared * dof1 )  !(X1_squared/dof1)/(X2_squared/dof2)
+           f = X1_squared * dof2 / ( X2_squared * dof1 ) 
         ENDIF
 
         ms_resid = X2_squared/dof2
@@ -813,10 +907,6 @@ IMPLICIT NONE
                     REAL(dof2/(dof2 + dof1*f)),  &
                     REAL(1.0 - (dof2/(dof2 + dof1*f))), &
                     Ix, pOfF, ierr)
-!        CALL BRATIO(REAL(1.0), REAL(2.0), &
-!                    REAL(0.25),  &
-!                    REAL(0.75), &
-!                    Ix, pOfF, ierr)
 
         AIC = (2.0 * nParams) + (nObs * ALOG(REAL(X2_squared/nObs)))
         AICC = AIC + ((2.0 * nParams *(nParams+1))/(nObs - nParams - 1))
@@ -852,7 +942,7 @@ IMPLICIT NONE
     INTEGER, INTENT(IN) :: nVerts, vertices(:)
     INTEGER :: i, nSegments
     REAL(KIND=R8), INTENT(INOUT) :: yfit(:), slopes(:)
-!fillLine(x, xEndpts, yEndpts, filledLine, slope)
+
     nSegments = nVerts - 1
     DO i = 1, nSegments
        CALL fillLine(x, (/x(vertices(i)), x(vertices(i+1))/), & 
@@ -866,31 +956,48 @@ SUBROUTINE takeOutWeakest(currModel, threshold, vec_timestamps, vec_obs, v, &
                 vertYVals, nObs, nCurrVerts, nUpdatedVerts, updatedVerts)
 USE globalVars_par
 IMPLICIT NONE
-   ! Global parameters needed here:
-   ! The definition for the derived type ltr_model
-   !
-   ! currModel is the model being evaluated. It has:
-   !      -- yfit:       fitted values over all timepoints
-   !      -- vertices:   global indices (in present data?) of vertex positions
-   !      -- fstat:      F-statistic of this model
-   !      -- p_of_f:     
-   !      -- aicc:
-   !      -- vertYVals:  fitted values at vertices
-   !      -- slopes:     slope of each segment in this model
-   !
-   ! nCurrVerts is the number of vertices in the current (incoming) model.
-   ! vec_timestamps is the x-coordinate vector
-   ! vec_obs is the y-coordinate vector
-   ! nObs is the number of timepoints
-   ! v is the set of vertices in the incoming model, same as currModel%vertices
-   ! vertYVals is same as currModel%vertYVals
-   ! nCurrVerts is len(v)
-   ! Exactly 1 vertex will get dropped. 
-   ! updatedVerts has nCurrVerts-1 elements.
-   !
-   ! We will only USE the currModel here. We won't update it. It gets updated
-   ! in the calling program. Here, only the updated vertices are gathered
-   ! and returned as the vector updatedVerts.
+!    Step 6(i) of the pseudocode:
+!        
+!    Approach:
+!        Weakest segment is the segment with maximum absolute slope.
+!        Weakest vertex is the left vertex of this segment.
+!
+!    Inputs:
+!        currModel:      a deritved type variable describing the model being
+!                        evaluate. It has
+!                        -- yfit:       fitted values over all timepoints
+!                        -- vertices:   global indices (in present data?) of
+!                                       vertex positions
+!                        -- fstat:      F-statistic of this model
+!                        -- p_of_f:     
+!                        -- aicc:
+!                        -- vertYVals:  fitted values at vertices
+!                        -- slopes:     slope of each segment in this model
+!        threshold:      recovery_threshold
+!        vec_timestamps: the x-coordinate vector
+!        vec_obs:        the y-coordinate vector
+!        v:              indexes of the x-coords wrt vec_timestamps,
+!                        same as currModel%vertices
+!        vertYVals:      y-coordinates at the vertices
+!        nObs:           number of timepoints, to facilitate automatic arrays
+!        nCurrVerts:     len(v), to facilitate automatic arrays
+!
+!    Output:
+!        updatedVerts:   array of vertices after the 'weakest' vertex has been dropped.
+!        nUpdatedVerts:  will be just one less, but we pass it anyways.
+!                        Only the first nUpdatedVerts of the array updatedVerts 
+!                        will be relevant.
+!   
+!    Exactly 1 vertex will get dropped. 
+!    updatedVerts has nCurrVerts-1 elements.
+!   
+!    We will only USE the currModel here. We won't update it. It gets updated
+!    in the calling program. Here, only the updated vertices are gathered
+!    and returned as the vector updatedVerts.
+!   
+!    Global parameters needed here:
+!    The definition for the derived type ltr_model
+!   
 
    TYPE(ltr_model), INTENT(IN) :: currModel !will get allocated and calculated in
                                         !the calling program when it calls 
@@ -924,7 +1031,6 @@ IMPLICIT NONE
    !based on NDVI (band5) type indicators).
    nNegatives = 0
    scaledSlopes = 0.0
-   !print *, 'nSplopes =', nSlopes
    DO i = 1, nSlopes
 !      IF ((currModel%slopes(i) < 0).AND.(currModel%slopes(i) /= -1)) THEN
       IF ((currModel%slopes(i) > 0).AND.(-1.0*currModel%slopes(i) /= -1)) THEN
@@ -970,7 +1076,6 @@ IMPLICIT NONE
            runMSE = .TRUE.
         ELSE 
            ! No need for MSE in this case. Just drop the vertex.
-
 !           thisx = vec_timestamps(v(weakest_vert))
 !           leftx = vec_timestamps(v(weakest_vert-1))
 !           rightx = vec_timestamps(v(weakest_vert+1))
@@ -978,7 +1083,7 @@ IMPLICIT NONE
 !           righty = currModel%vertYVals(weakest_vert+1)
 !           tmp = (righty - lefty)/(rightx - leftx)  !slope 
 !           currModel%yfit(v(weakest_vert)) = (thisx-leftx)*tmp + lefty
-           !the above calculation make no sense!
+           !the above calculation makes no sense!
            !why are we changing the fit values in the current model????!!!!!
            !the idea is to generate an updated set of vertices
            !and then a new (simpler) model using those vertices.
@@ -996,9 +1101,9 @@ IMPLICIT NONE
    !choose the vertex to be dropped based on MSE.
    IF (runMSE .EQV. .TRUE.) THEN
   
-     MSE(1) = 1000000000000.0000005   !HUGE(1000000000000.0000005)
+     MSE(1) = 1000000000000.0000005   
      ! actually, can't we just have MSE of length nCurrVerts-2?
-     MSE(nCurrVerts) = 1000000000000.0000005   !HUGE(1000000000000.0000005)
+     MSE(nCurrVerts) = 1000000000000.0000005 
      DO i = 2, nCurrVerts - 1
          vleft = v(i-1)
          vright = v(i+1)
@@ -1012,10 +1117,12 @@ IMPLICIT NONE
          CALL fillLine(vec_timestamps(vleft:vright), &
                       (/ leftx, rightx /), (/ lefty, righty /), &
                       uPP(vleft:vright), fillSlope)
-         MSE(i) = SUM((/ ((uPP(k) - vec_obs(k))* (uPP(k) - vec_obs(k))/(rightx-leftx), k = vleft,vright) /))
+         MSE(i) = SUM((/ ((uPP(k) - vec_obs(k))* &
+                 (uPP(k) - vec_obs(k))/(rightx-leftx), k = vleft,vright) /))
      END DO
 
-     j = MINLOC(MSE(2:nCurrVerts-1)) !min location wrt indices of original stencil will be j + 1 
+     !min location wrt indices of original stencil will be j+1 
+     j = MINLOC(MSE(2:nCurrVerts-1)) 
      weakest_vert = j(1) + 1
      updatedVerts(1:weakest_vert-1) = v(1:weakest_vert-1)
      updatedVerts(weakest_vert: nCurrVerts-1) = v(weakest_vert+1: nCurrVerts)
@@ -1034,20 +1141,31 @@ END SUBROUTINE takeOutWeakest
 SUBROUTINE pickBestModel(my_models, numModels, bestModelInd)
 USE globalVars_par
 IMPLICIT NONE
-   ! Global variables needed:
-   ! ltr_model definition
-   ! ltr_useFstat 
-   ! ltr_bestModelProp
-   ! ltr_pval
-   ! currModel is the model being evaluated. It has:
-   !      -- yfit:       fitted values over all timepoints
-   !      -- vertices:   global indices (in present data?) of vertex positions
-   !      -- fstat:      F-statistic of this model
-   !      -- p_of_f:     
-   !      -- aicc:
-   !      -- vertYVals:  fitted values at vertices
-   !      -- slopes:     slope of each segment in this model
-   !
+!    Step 7 of the pseudocode:
+!    Check each model for acceptability, and then return the index of the 'best' model.
+!    
+!    Inputs:
+!        my_models:  an array, where each element is a derived type variable
+!                    represents/describes a model.
+!        numModels:  to facilitate automatics arrays
+!        
+!    Output:
+!        bestModelInd:  index of the best model in the array my_models.
+!
+!     Global variables needed:
+!     ltr_model definition
+!     ltr_useFstat 
+!     ltr_bestModelProp
+!     ltr_pval
+!     currModel is the model being evaluated. It has:
+!          -- yfit:       fitted values over all timepoints
+!          -- vertices:   global indices (in present data?) of vertex positions
+!          -- fstat:      F-statistic of this model
+!          -- p_of_f:     
+!          -- aicc:
+!          -- vertYVals:  fitted values at vertices
+!          -- slopes:     slope of each segment in this model
+!    
    TYPE(ltr_model), INTENT(IN) :: my_models(:)
    INTEGER, INTENT(IN) :: numModels
    INTEGER :: ctr, passTheTest, i
@@ -1124,24 +1242,41 @@ END SUBROUTINE pickBestModel
 SUBROUTINE checkSlopes(model, nVerts, accept)
 USE globalVars_par
 IMPLICIT NONE
-   ! Global variables needed:
-   ! ltr_model
-   ! ltr_recoveryThreshold
-   !
-   ! model is the model being evaluated. It has:
-   !      -- numVerts:   number of vertices in the model
-   !      -- yfit:       fitted values over all timepoints
-   !      -- vertices:   global indices (in present data?) of vertex positions
-   !      -- fstat:      F-statistic of this model
-   !      -- p_of_f:     
-   !      -- aicc:
-   !      -- vertYVals:  fitted values at vertices
-   !      -- slopes:     slope of each segment in this model
-   !
-   !Given one model, look at its slopes.
-   !Filter out if recovery happens quicker than quickest disturbance --
-   !a value-free way to get unreasonable things out.
-   !but of course don't do if all we have is recovery. No way to tell for sure then.
+!    Again, step 7 of the pseudocode:
+!        
+!        Once a model has been decided, this routine double checks the slopes
+!        in the model.
+!        We don't want the slopes to be 'abnormal'
+!        For e.g., a recovery steeper than a threshold may indicate unacceptability
+!        for the model.
+!        
+!    Input:
+!        model:   a derived type variable describing the model being evaluated.
+!                 It has:
+!                  -- numVerts:   number of vertices in the model
+!                  -- yfit:       fitted values over all timepoints
+!                  -- vertices:   global indices (in present data?) of
+!                                 vertex positions
+!                  -- fstat:      F-statistic of this model
+!                  -- p_of_f:     
+!                  -- aicc:
+!                  -- vertYVals:  fitted values at vertices
+!                  -- slopes:     slope of each segment in this model
+!
+!                nVerts:  to facilitate automatic arrays
+!        
+!    Output:
+!        accept: a string with value 'Yes' or 'No'
+!
+!     Global variables needed:
+!     ltr_model
+!     ltr_recoveryThreshold
+!    
+!    Given one model, look at its slopes.
+!    Filter out if recovery happens quicker than quickest disturbance --
+!    a value-free way to get unreasonable things out.
+!    but of course don't do if all we have is recovery. No way to tell for sure then.
+
    TYPE(ltr_model), INTENT(IN) :: model
    INTEGER, INTENT(IN) :: nVerts
    INTEGER ::  i, nPositives, nSlopes
@@ -1181,35 +1316,48 @@ SUBROUTINE findBestTrace_alternate(vec_timestamps, vec_obs, Sfinal, &
 USE globalVars_par
 USE bsplines
 IMPLICIT NONE
-     ! Global variables needed:
-     ! bestTrace definition
-     ! 
+!    Step 4' of the pseudocode:
+!        
+!    This routine is for the marquardt approach. Err ... actually, we are using Bsplines
+!   
+!    Place knots at the current vertices.
+!    Then fit get a fit using Bsplines approximation.
+!    Bsplines implementation is based on the corresponding Fortran codes from
+!    Prof. L.T.Watson, Prof. DeBoor.
+! 
+!    Inputs:
+!       vec_timestamps:  the x-coordinates
+!       vec_obs:         the observations (i.e., the y-coordinates)
+!       Sfinal:          len(vec_timestamps), the no. of datapoints.
+!                        to facilitate automatic arrays
+!       currVerts:       the current vertices.
+!       numCurrVerts:    to facilitate automatic arrays 
+!       order:           to facilitate automatic array Q.
+!                        We use linear splines. So, order = deg + 1 = 2
+!       n_dim:           k*l - sum_ctntyCondsPerInternalVertex.
+!                        again, to facilitate automatic arrays.
+!
+!    Output:
+!       bt:  a derived type variable containing
+!            vertices, vertYVals, yFitVals, and slopes of the calcualted model.
+!            (just as findBestTrace did.)
+!
+!    Global variables needed:
+!    bestTrace definition
+!    
 !    this routine is for the marquardt approach. Err ... actually, 
 !    we are using Bsplines
-!    "x values"
-!    "y values"
-!    "currVerts"
-!    "x coords of vertices"
-!    "y coords of vertices"
-!    "y-fit values"
-!    "slopes is needed for later analysis in the main algorithm. So 
-!     we store and return those as well"
 
     REAL(KIND=R8), INTENT(IN) :: vec_timestamps(:), vec_obs(:)
     INTEGER, INTENT(IN) :: currVerts(:)
     INTEGER, INTENT(IN) :: order, n_dim, Sfinal, numCurrVerts
     integer :: i, thisVert, nextVert, left
-    !INTEGER  :: order, n_dim, Sfinal, numCurrVerts
     real, dimension(Sfinal) :: vec_ts, vec_obsr
     REAL, DIMENSION(order, n_dim) :: Q
     REAL, DIMENSION(n_dim) :: DIAG, bcoeff
     REAL, DIMENSION(Sfinal) :: weights
     REAL(kind=r8), DIMENSION(Sfinal) :: fit
     REAL, DIMENSION(numCurrVerts+2) :: knots
-!    REAL, DIMENSION(100) :: weights
-!    REAL, DIMENSION(7) :: knots
-!    REAL, DIMENSION(:, :), allocatable :: Q
-!    REAL, DIMENSION(:), allocatable :: DIAG, bcoeff
     type(bestTrace), intent(inout) :: bt
 
 
@@ -1219,6 +1367,7 @@ IMPLICIT NONE
     knots(1) = vec_ts(1)
     knots(2:numCurrVerts+1) = vec_ts(currVerts(1:numCurrVerts)) 
     knots(numCurrVerts+2) = vec_ts(Sfinal)
+    ! test case:
     !order = 2
     !n_dim = 5
     !Sfinal = 100
@@ -1226,23 +1375,20 @@ IMPLICIT NONE
     !vec_obsr = (/ (3.0*sin(2.0*3.148*real(i)/10.0) + &
     !               2.0*cos(2.0*3.148*real(i)/10.0) + &
     !               0.5*real(i/10.0), i=1,100)  /)
-!
-!    knots(1) = 1.0
-!    knots(2) = 1.0
-!    knots(3) = 25.0
-!    knots(4) = 50.0
-!    knots(5) = 75.0
-!    knots(6) = 100.0
-!    knots(7) = 100.0
-    
-!    allocate (Q(order, n_dim), diag(n_dim), bcoeff(n_dim))
+    !
+    !knots(1) = 1.0
+    !knots(2) = 1.0
+    !knots(3) = 25.0
+    !knots(4) = 50.0
+    !knots(5) = 75.0
+    !knots(6) = 100.0
+    !knots(7) = 100.0
+    !allocate (Q(order, n_dim), diag(n_dim), bcoeff(n_dim))
     weights = 1.0
     Q = 0.0
     DIAG = 0.0
-    !print *, knots
     CALL l2appr(knots, n_dim, order, Sfinal, vec_ts, vec_obsr, &
                      weights, Q, DIAG, bcoeff)
-    !print *, 'bcoeffs:' , bcoeff
     fit = 0.0
     left = order
     tsloop: DO i = 1, Sfinal
@@ -1277,6 +1423,15 @@ END SUBROUTINE findBestTrace_alternate
 
 SUBROUTINE takeOutWeakest_alternate(vec_timestamps, vec_obs, nObs, v, &
                                     vertVals, nCurrVerts, updatedVerts)
+!    Step 6'(i)
+!    
+!    Unlike takeOutWeakest, we don't look for negative slopes anymore.
+!
+!    Helper function:
+!        fillLine
+!    Output:
+!        updatedVerts:   list of vertices after the 'weakest' vertex has been dropped.
+!                        (just like takeOutWeakest.)
 
     ! vertVals are the fitted y-values at the vertices
     REAL(KIND=R8), INTENT(IN) :: vec_timestamps(:), vec_obs(:), vertVals(:)
@@ -1290,8 +1445,8 @@ SUBROUTINE takeOutWeakest_alternate(vec_timestamps, vec_obs, nObs, v, &
     REAL(KIND=R8) :: fillSlope, leftx, rightx, lefty, righty
     INTEGER, INTENT(INOUT) :: updatedVerts(:)
 
-    MSE(1) = 1000000000000.0000005   !HUGE(1000000000000.0000005)
-    MSE(nCurrVerts) = 1000000000000.0000005   !HUGE(1000000000000.0000005)
+    MSE(1) = 1000000000000.0000005   
+    MSE(nCurrVerts) = 1000000000000.0000005   
     DO i = 2, nCurrVerts - 1
         vleft = v(i-1)
         vright = v(i+1)
@@ -1311,7 +1466,8 @@ SUBROUTINE takeOutWeakest_alternate(vec_timestamps, vec_obs, nObs, v, &
         MSE(i) = DOT_PRODUCT((uPP(vleft:vright) - vec_obs(vleft:vright)), &
                              (uPP(vleft:vright) - vec_obs(vleft:vright)))
     END DO
-    j = MINLOC(MSE(2:nCurrVerts-1)) !min location wrt indices of original stencil will be j + 1 
+    !min location wrt indices of original stencil will be j + 1 
+    j = MINLOC(MSE(2:nCurrVerts-1)) 
     weakest_vert = j(1) + 1
     updatedVerts(1:weakest_vert-1) = v(1:weakest_vert-1)
     updatedVerts(weakest_vert: nCurrVerts-1) = v(weakest_vert+1: nCurrVerts)
