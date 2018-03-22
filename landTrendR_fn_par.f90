@@ -3,7 +3,6 @@ CONTAINS
 
 SUBROUTINE ltr(imgIndex)
 use globalVars_par
-use utilities_ltr
 use real_precision
 implicit none
 
@@ -54,7 +53,6 @@ integer, dimension(ltr_mu + ltr_nu+1, 2) :: brkPtYrDoy
 !numTrendBrks = ltr_max_numBrks ! this is internal number of breaks.If we do 
 !count the boundary pts
 
-!REDO:
 ALLOCATE (work_arr%tmp_mat(num_obs, 5),  &
           work_arr%rtmp_vec1(num_obs), work_arr%rtmp_vec2(num_obs),  &
           work_arr%itmp_vec1(num_obs), work_arr%itmp_vec2(num_obs))
@@ -67,12 +65,7 @@ DO pixel = 1, num_pixels
      IF (pixel_x == 0) THEN
          pixel_x = NumCols
      ENDIF
-     !pixel_y = INT(CEILING(REAL(imgIndex(pixel))/NumCols))
      pixel_y = INT(CEILING(REAL(imgIndex(pixel), KIND=R8)/NumCols))  
-
-     !print *, '(px, py) =', pixel_x, ',', pixel_y
-  if ((pixel_x <= FLOOR(NumCols/2.0))) then ! &  !.and. (pixel_x >= FLOOR(NumCols/2.0)) &
-!       .and. (pixel_y >= FLOOR(NumRows/4.0)) .and. (pixel_y <= FLOOR(NumRows/2.0))) then !& (pixel_y >= FLOOR(NumRows/4.0)) ) then
 
      ! ********* develop the presInd vector *******************
      pctr = 0
@@ -80,7 +73,6 @@ DO pixel = 1, num_pixels
      len_training_vec = 0
      num_days_gone = 0
      vec_timestamps_edited(1) = tyeardoy(1, 2)
-     !IF (reverse .eqv. .FALSE.) THEN
      DO i = 1, num_obs
         IF (i > 1) THEN    
            IF (tyeardoy(i,1) /= tyeardoy(i-1, 1)) THEN
@@ -104,7 +96,6 @@ DO pixel = 1, num_pixels
            ENDIF
         ENDIF
      END DO
-     !ENDIF
      num_valid_obs = pctr
 
      IF (len_training_vec <= 2.0 * ewmacd_numHarmonics+1 ) THEN
@@ -112,7 +103,6 @@ DO pixel = 1, num_pixels
      ENDIF
     ! **************** prepare data *************************
      
-!    vec_timestamps = (/(tyeardoy(i,1) + (tyeardoy(i,2)/365.0_R8), i=1,num_obs)/)
     vec_timestamps  = vec_timestamps_edited
     vec_timestamps_pres(1:num_valid_obs) = &
             (/ (vec_timestamps(presInd(i)), i=1,num_valid_obs) /)
@@ -140,9 +130,7 @@ DO pixel = 1, num_pixels
                       vec_obs_despiked(1:num_valid_obs), num_valid_obs, &
                       mpnp1, initBrkpts, numInitVerts1, &
                       work_arr)
-    if (numInitVerts1 /= mpnp1) then
-    !   print px, py, numInitVerts1, mpnp1
-    endif
+
     !Cull by angle change. Output: newInitVerts
     CALL cullByAngleChange(vec_timestamps_pres(1:num_valid_obs), &
                        vec_obs_despiked(1:num_valid_obs), &
@@ -154,8 +142,8 @@ DO pixel = 1, num_pixels
               thisModelTrace%vertYvals(numInitVerts2), &
               thisModelTrace%yFitVals(num_valid_obs), &
               thisModelTrace%slopes(numInitVerts2-1))
+
     ! Output: thisModelTrace
-    !print *, newInitBrkpts(1:ltr_mu+1), ', ', numInitVerts2
     CALL findBestTrace(vec_timestamps_pres(1:num_valid_obs), &
                        vec_obs_despiked(1:num_valid_obs), num_valid_obs, &
                        newInitBrkpts(1:numInitVerts2), numInitVerts2,  &
@@ -227,9 +215,12 @@ DO pixel = 1, num_pixels
                            thisModelStats)
       ! Step 4: Update my_models, prev_model_ind
       my_models(this_model_ind)%numVertices = nVerts_thisModel
-      my_models(this_model_ind)%vertices(1:nVerts_thisModel) = thisModelTrace%vertices(1:nVerts_thisModel)  ! same as  updatedBrkpts(1:nVerts_thisModel)
-      my_models(this_model_ind)%vertYvals(1:nVerts_thisModel) = thisModelTrace%vertYvals(1:nVerts_thisModel)
-      my_models(this_model_ind)%slopes(1:nVerts_thisModel-1) = thisModelTrace%slopes(1:nVerts_thisModel-1)
+      my_models(this_model_ind)%vertices(1:nVerts_thisModel) = &
+          thisModelTrace%vertices(1:nVerts_thisModel)  ! same as updatedBrkpts(1:nVerts_thisModel)
+      my_models(this_model_ind)%vertYvals(1:nVerts_thisModel) = &
+              thisModelTrace%vertYvals(1:nVerts_thisModel)
+      my_models(this_model_ind)%slopes(1:nVerts_thisModel-1) = &
+              thisModelTrace%slopes(1:nVerts_thisModel-1)
       my_models(this_model_ind)%yfit(1:num_valid_obs) = thisModelTrace%yFitVals
       my_models(this_model_ind)%fstat = thisModelStats%fstat
       my_models(this_model_ind)%p_of_f = thisModelStats%p_of_f
@@ -269,7 +260,6 @@ DO pixel = 1, num_pixels
      ENDDO
      !**********************************************************
      !**********************************************************
-!     my_models(bestModelInd)%p_of_f = ltr_pval + 0.1
      !If no good fit found, try the MPFITFN approach
      IF (my_models(bestModelInd)%p_of_f > ltr_pval) THEN
         !redo the whole model generation part, this time with 
@@ -427,69 +417,58 @@ DO pixel = 1, num_pixels
      brkptsGI(1:numTotalVertices) = presInd(vecTrendBrks(1:numTotalVertices))
      brkptsGI(1) = 1
      brkptsGI(numTotalVertices) = num_obs
-!     DO i = 1, numTotalVertices 
-!        brkPtYrDoy(i, 1:2) = tyeardoy(brkptsGI(i), 1:2)
-!     end do
-!     left = 1
-!     right = 2
-!     DO i = presInd(1), presInd(num_valid_obs)
-!       ! Check if this location was present. If it was, we already have the value; no need
-!       ! for further calculation.
-!       IF ( ANY(presInd(1:num_valid_obs) == i ) .EQV. .TRUE.) THEN
-!          CYCLE
-!       ELSE
-!          ! Locate left, right st. vts(i) \in [vts_pres(left), vts_pres(right))
-!          ! (locate the interval in which this x lies.)
-!          DO WHILE (vec_timestamps(i) >= vec_timestamps_pres(vecTrendBrks(right)))  ! .and. &
-!!              (vec_timestamps_pres(initBrkpts(right)) < num_valid_obs))
-!              left = left + 1
-!              right = right + 1
-!              if (right >= numTotalVertices) then
-!                 EXIT
-!              endif
-!          END DO
-!          ! Fetch the (x,y) coordinates of the segment representing this interval.
-!          x1 = vec_timestamps_pres(vecTrendBrks(left))
-!          x2 = vec_timestamps_pres(vecTrendBrks(right))
-!          y1 = my_models(bestModelInd)%vertYvals(left)
-!          y2 = my_models(bestModelInd)%vertYvals(right)
-!          slope = real(y2-y1)/real(x2-x1)
-!          intercept = real(y1) - slope * real(x1)
-!          ltr_summary(i, pixel_x, pixel_y) = slope * real(vec_timestamps(i)) + intercept
-!       ENDIF
-!     END DO
-!
-!     ! the right end:
-!     x1 = vec_timestamps_pres(vecTrendBrks(left))
-!     x2 = vec_timestamps_pres(vecTrendBrks(right))
-!     y1 = my_models(bestModelInd)%vertYvals(left)
-!     y2 = my_models(bestModelInd)%vertYvals(right)
-!     slope = real(y2-y1)/real(x2-x1)
-!     intercept = real(y1) - slope * real(x1)
-!     DO i = presInd(num_valid_obs)+1 ,num_obs
-!          ltr_summary(i, pixel_x, pixel_y) = slope * real(vec_timestamps(i)) + intercept
-!     END DO
-!
-!     ! the left end:
-!     x1 = vec_timestamps_pres(vecTrendBrks(1))
-!     x2 = vec_timestamps_pres(vecTrendBrks(2))
-!     y1 = my_models(bestModelInd)%vertYvals(1)
-!     y2 = my_models(bestModelInd)%vertYvals(2)
-!     slope = real(y2-y1)/real(x2-x1)
-!     intercept = real(y1) - slope * real(x1)
-!     DO i = 1, presInd(1)-1
-!          ltr_summary(i, pixel_x, pixel_y) = slope * real(vec_timestamps(i)) + intercept
-!     END DO
-     ! for sanity check:
-     !print *, 'presInd(1) from left = ',  slope * vec_timestamps(presInd(1)) + intercept
-     !print *, 'presInd(1) from right =' , ltr_summary(presInd(1), pixel_x, pixel_y)
+     DO i = 1, numTotalVertices 
+        brkPtYrDoy(i, 1:2) = tyeardoy(brkptsGI(i), 1:2)
+     end do
+     left = 1
+     right = 2
+     DO i = presInd(1), presInd(num_valid_obs)
+       ! Check if this location was present. If it was, we already have the value; no need
+       ! for further calculation.
+       IF ( ANY(presInd(1:num_valid_obs) == i ) .EQV. .TRUE.) THEN
+          CYCLE
+       ELSE
+       ! Locate left, right st. vts(i) \in [vts_pres(left), vts_pres(right))
+       ! (locate the interval in which this x lies.)
+       DO WHILE (vec_timestamps(i) >= vec_timestamps_pres(vecTrendBrks(right)))
+              left = left + 1
+              right = right + 1
+              if (right >= numTotalVertices) then
+                 EXIT
+              endif
+          END DO
+         ! Fetch the (x,y) coordinates of the segment representing this interval.
+          x1 = vec_timestamps_pres(vecTrendBrks(left))
+          x2 = vec_timestamps_pres(vecTrendBrks(right))
+          y1 = my_models(bestModelInd)%vertYvals(left)
+          y2 = my_models(bestModelInd)%vertYvals(right)
+          slope = real(y2-y1)/real(x2-x1)
+          intercept = real(y1) - slope * real(x1)
+          ltr_summary(i, pixel_x, pixel_y) = slope * real(vec_timestamps(i)) + intercept
+       ENDIF
+     END DO
 
-     !(2) breakpoint summary:
-!     ltr_brkpt_summary(brkptsGI(2:numTotalVertices-1), pixel_x, pixel_y) = 1.0
+     ! the right end:
+     x1 = vec_timestamps_pres(vecTrendBrks(left))
+     x2 = vec_timestamps_pres(vecTrendBrks(right))
+     y1 = my_models(bestModelInd)%vertYvals(left)
+     y2 = my_models(bestModelInd)%vertYvals(right)
+     slope = real(y2-y1)/real(x2-x1)
+     intercept = real(y1) - slope * real(x1)
+     DO i = presInd(num_valid_obs)+1 ,num_obs
+          ltr_summary(i, pixel_x, pixel_y) = slope * real(vec_timestamps(i)) + intercept
+     END DO
 
-  !   print *, '(', pixel_x, ', ', pixel_y, ')', ', num_valid_obs =', num_valid_obs
-  !   print *, 'input:', input_mat(presInd(1:num_valid_obs), pixel_x, pixel_y)
-  !   print *, ltr_summary(:, pixel_x, pixel_y)
+     ! the left end:
+     x1 = vec_timestamps_pres(vecTrendBrks(1))
+     x2 = vec_timestamps_pres(vecTrendBrks(2))
+     y1 = my_models(bestModelInd)%vertYvals(1)
+     y2 = my_models(bestModelInd)%vertYvals(2)
+     slope = real(y2-y1)/real(x2-x1)
+     intercept = real(y1) - slope * real(x1)
+     DO i = 1, presInd(1)-1
+          ltr_summary(i, pixel_x, pixel_y) = slope * real(vec_timestamps(i)) + intercept
+     END DO
 
      DO i = 1, mpnp1
          DEALLOCATE (my_models(i)%yfit, my_models(i)%vertices, &
@@ -497,7 +476,6 @@ DO pixel = 1, num_pixels
      END DO
      DEALLOCATE (thisModelTrace%vertices, thisModelTrace%vertYvals, &
                thisModelTrace%yFitVals, thisModelTrace%slopes)
-    endif
 
 END DO
 

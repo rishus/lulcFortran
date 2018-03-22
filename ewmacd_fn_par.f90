@@ -3,7 +3,7 @@ CONTAINS
 
 SUBROUTINE ewmacd(imgIndex)  !pixel_x is a k-element vector. So is pixel_y.
 USE globalVars_par
-USE utilities_par
+USE utilities_ewma
 USE REAL_PRECISION
 IMPLICIT NONE
 
@@ -72,14 +72,8 @@ DO pixel = 1, num_pixels
     ! *************** prepare data ***********************************
     
     t(1:Sfinal) = (/ (tyeardoy(presInd(i),2)*2.0_R8*Pi/365.0_R8, i=1,Sfinal) /)
-    !training_t(1:len_training_vec) = t(1:len_training_vec)
     
-    !IF (reverse .eqv. .FALSE.) THEN
-       D(1:Sfinal) = (/ (input_mat(presInd(i), pixel_x, pixel_y), i=1,Sfinal  ) /)
-    !ELSE
-    !   D(1:Sfinal) = (/ (input_mat(num_obs-presInd(i)+1, pixel_x, pixel_y), i=1,Sfinal   )  /)
-    !ENDIF
-    !u(1:len_training_vec) = D(1:len_training_vec)
+    D(1:Sfinal) = (/ (input_mat(presInd(i), pixel_x, pixel_y), i=1,Sfinal  ) /)
     
     nullFlag = .FALSE.
     ierr_lsfit = 0
@@ -110,13 +104,13 @@ DO pixel = 1, num_pixels
        ! persistenceVec gets allocated; again size sz
        CALL persistenceCounting(f(1:sIbar), persistenceVec(1:sIbar), work_arr, sIbar)
     
-       jump_vals_presSten(1:Sfinal) = -2222_2                           ! present data = 'good' data + 'outlier' data
+       jump_vals_presSten(1:Sfinal) = -2222_2   ! present data = 'good' data + 'outlier' data
        jump_vals_presSten(Ibar) = INT(persistenceVec(1:sIbar), KIND=2)  ! remember that Ibar is relative to 'Sfinal'
     
        CALL summarize(pixel_x, pixel_y, jump_vals_presSten(1:Sfinal),  &
                      &          presInd(1:Sfinal), 3, Sfinal, num_obs)
     
-!       ! IF residuals are desired
+!       ! Uncomment IF residuals are desired
 !       residuals_presSten(1:Sfinal) = -2222
 !       DO i = 1, sIbar
 !          residuals_presSten(Ibar(i)) = REAL(EstarAlphastar(Ibar(i)), KIND=4) ! EstarAlphastar is of size Sfinal
@@ -125,18 +119,16 @@ DO pixel = 1, num_pixels
 !                                                                   ! will have -2222.
 !       CALL summarize_residuals(pixel_x, pixel_y, residuals_presSten(1:Sfinal), presInd(1:Sfinal), 3, Sfinal)
 !    
-!       ! because Christine wants coefficients  also
+!       ! Uncomment IF coefficients are needed
 !       ewma_coeffs(1:ncols, pixel_x, pixel_y) = (/ (REAL(alphaStar(i), KIND = 4), i= 1,ncols) /)
     
     ENDIF
 
 END DO
 
-DEALLOCATE (work_arr%tmp_mat, work_arr%rtmp_vec1, work_arr%rtmp_vec2,   &
-                 &  work_arr%itmp_vec1, work_arr%itmp_vec2, work_arr%dev, STAT=derr, errmsg=my_errmsg)
-if (derr /= 0) then
-  print *, 'failed to deallocate work with stat =', derr, 'and err msg'//trim(my_errmsg)
-endif
+DEALLOCATE (work_arr%tmp_mat, work_arr%rtmp_vec1, work_arr%rtmp_vec2,  &
+            work_arr%itmp_vec1, work_arr%itmp_vec2, work_arr%dev, &
+            STAT=derr, errmsg=my_errmsg)
 
 END SUBROUTINE ewmacd
 

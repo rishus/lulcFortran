@@ -6,7 +6,6 @@ USE globalVars_par
 USE REAL_PRECISION
 IMPLICIT NONE
 
-!*****************************************************************************80
 !
 ! std CALCULATES THE STANDARD DEVIATION FOR THE DATA IN VARIALBLE data
 !
@@ -25,10 +24,8 @@ IMPLICIT NONE
    endif
    
    mean = (SUM(data(1:m)))/dble(m)
-   !print *, "mean of data = ", mean
    work_arr%dev(1:m)  =  data(1:m) - mean
    work_arr%dev(1:m) = (/ (work_arr%dev(i)*work_arr%dev(i),  i=1,m) /)
-   !print *, "deviation = ", work_arr%dev
    var = SUM(work_arr%dev(1:m))/dble(m-1)  ! because R uses N-1. Otherwise, it would be divided by N only.
    sigma = SQRT(var)
 
@@ -36,7 +33,7 @@ RETURN
 END FUNCTION std
 
 SUBROUTINE lsfit(t, u, K, alphaStar, IERR, work_arr)
-!*****************************************************************************80
+!
 ! lsfit CALCULATES THE LEAST SQUARES FIT FOR THE DATA GIVEN BY VECTORS T AND U
 !
 ! Input parameters:
@@ -168,7 +165,7 @@ END SUBROUTINE LSFIT
 
 SUBROUTINE getResiduals(alphaStar, t, D, K, M, ierr_lsfit, & 
                       sigmaIhat, EstarAlphastar, Ibar, sz, nullFlag, work_arr)
-!*****************************************************************************80
+!
 !Residuals calculation for Step 1 of the pseudocode.
 !    Inputs:
 !        alphaStar:         refined coefficients determined with repeated regression
@@ -281,7 +278,7 @@ END SUBROUTINE getResiduals
 
 
 SUBROUTINE getControlLimits(sigma, len_Ibar, tau)
-!*****************************************************************************80
+!
 !    Step 2 of the pseudocode.
 !    
 !    A control chart is built.
@@ -301,8 +298,6 @@ IMPLICIT NONE
    INTEGER   ::   i
    REAL(KIND=R8)   :: sl, f, a, p, b
   
-   !print *, "In SUBROUTINE getControlLimits"
-
    sl = sigma*L
    f = lam/(2.0 - lam)
    a = 1 - lam
@@ -316,7 +311,7 @@ END SUBROUTINE getControlLimits
 
 
 SUBROUTINE getEWMA(Ibar, EstarAlphastar, z, len_Ibar)
-!*****************************************************************************80
+!
 !    Step 3 of the pseudocode.
 !    
 !    EWMA of residuals resulting from harmonic regression is calculated.
@@ -358,7 +353,7 @@ IMPLICIT NONE
 END SUBROUTINE getEWMA
 
 SUBROUTINE flagHistory(z, tau, f, len_Ibar)
-!*****************************************************************************80
+!
 !    Step 4, flag history calculation of the pseudocode.
 !    
 !    Flag history is claculated here, based on the 'persistence' of any nonzero signals.
@@ -379,8 +374,6 @@ IMPLICIT NONE
   INTEGER, INTENT(IN) :: len_Ibar
   REAL(KIND=R8), INTENT(INOUT) :: f(:)
 
-  !print *, "In SUBROUTINE flagHistory"
-
   f = (/ (0, i=1,len_Ibar) /)
   DO i=1,len_Ibar
      IF (z(i) /= 0) THEN
@@ -398,7 +391,7 @@ IMPLICIT NONE
 END SUBROUTINE flagHistory
 
 SUBROUTINE persistenceCounting(f, persistenceVec, work_arr, len_Ibar)
-!*****************************************************************************80
+!
 !    Step 4, persistence calculation of the pseudocode
 !    Inputs:
 !        f:              the flag history
@@ -472,7 +465,7 @@ IMPLICIT NONE
 END SUBROUTINE persistenceCounting
 
 SUBROUTINE summarize(pixel_x, pixel_y, jumpValsOrgSten, presInd, method, Sfinal, S)
-!*****************************************************************************80
+!
 !    Summarizing.
 !    
 !    Missing data points are addressed here.
@@ -498,8 +491,6 @@ IMPLICIT NONE
   INTEGER(KIND=2), INTENT(IN) :: jumpValsOrgSten(:), presInd(:)
   INTEGER, INTENT(IN) ::  method, S
   INTEGER :: i, tt, Sfinal
-
-  !print *, "In SUBROUTINE summarize"
 
   tt = 1
   DO i = 1, Sfinal
@@ -535,8 +526,6 @@ IMPLICIT NONE
   INTEGER, INTENT(IN) ::  method, Sfinal
   INTEGER :: i, tt
 
-  !print *, "In SUBROUTINE summarize_residuals"
-
   tt = 1
   DO i = 1, Sfinal
      ewma_residuals(presInd(i), pixel_x, pixel_y) = residualsPresentSten(tt)
@@ -547,4 +536,4 @@ IMPLICIT NONE
 
 END SUBROUTINE summarize_residuals
 
-END MODULE utilities_par
+END MODULE utilities_ewma
