@@ -45,6 +45,12 @@ integer, dimension(ltr_mu + ltr_nu+1) :: vecTrendBrks, brkptsGI
 integer, dimension(ltr_mu + ltr_nu+1, 2) :: brkPtYrDoy
 ! ***********************************************
 
+! ********* PURPOSE **************
+!   Main code for algorithm LandTrendR
+!   Supporting files are all in utilities_ltr.f90, bsplines.f90, and BRATIO.f90
+! ***********************************************
+
+
 !numTrendBrks = ltr_max_numBrks ! this is internal number of breaks.If we do 
 !count the boundary pts
 

@@ -1,7 +1,7 @@
 MODULE ewmacd_fn_par
 CONTAINS
 
-SUBROUTINE ewmacd(imgIndex)  !pixel_x is now a k-element vector. So is pixel_y.
+SUBROUTINE ewmacd(imgIndex)  !pixel_x is a k-element vector. So is pixel_y.
 USE globalVars_par
 USE utilities_par
 USE REAL_PRECISION
@@ -16,17 +16,22 @@ integer (kind=8) :: num_pixels, pixel, pixel_x, pixel_y
 INTEGER :: i, ncols, len_training_vec, Sfinal, pctr
 INTEGER :: ierr_lsfit, aerr, derr, sIbar
 REAL(KIND=R8), DIMENSION(num_obs) ::  t, D
-!REAL(KIND=R8), DIMENSION(num_obs) ::  training_t, u
 REAL(KIND=R8)  :: sigmaIhat  
 REAL(KIND=R8), DIMENSION(2*ewmacd_numHarmonics+1) :: alphaStar  !, this_band_fit
 REAL(KIND=R8), DIMENSION(num_obs) :: EstarAlphastar, tau, z, f, persistenceVec
 INTEGER, DIMENSION(num_obs) :: Ibar
 INTEGER (KIND = 2), DIMENSION(num_obs) :: jump_vals_presSten, presInd
-!REAL (KIND = 4), DIMENSION(num_obs) :: residuals_presSten
+!REAL (KIND = 4), DIMENSION(num_obs) :: residuals_presSten  ! uncomment only if residuals are needed
 LOGICAL :: nullFlag
 type(ewmaWA) :: work_arr
 character(256) :: my_errmsg
 ! ***********************************************
+
+! ********* PURPOSE **************
+!   Main code for algorithm EWMACD
+!   Supporting files are all in utilities_ewma.f90
+! ***********************************************
+
 num_pixels = SIZE(imgIndex, 1)
 ncols = 2*ewmacd_numHarmonics+1
 
@@ -84,7 +89,6 @@ DO pixel = 1, num_pixels
     ! alphaStar gets allocated
     CALL LSFIT(t(1:len_training_vec), D(1:len_training_vec),   &
              &     ewmacd_numHarmonics, alphaStar, ierr_lsfit, work_arr)
-    !this_band_fit = (/ (alphaStar(i) , i = 1, ncols)/)
 
     ! EstarAlphastar, Ibar get allocated; Ibar is size sz
     CALL getResiduals(alphaStar, t(1:Sfinal), D(1:Sfinal),  &
@@ -112,7 +116,7 @@ DO pixel = 1, num_pixels
        CALL summarize(pixel_x, pixel_y, jump_vals_presSten(1:Sfinal),  &
                      &          presInd(1:Sfinal), 3, Sfinal, num_obs)
     
-!       ! because Christine wants residuals  also
+!       ! IF residuals are desired
 !       residuals_presSten(1:Sfinal) = -2222
 !       DO i = 1, sIbar
 !          residuals_presSten(Ibar(i)) = REAL(EstarAlphastar(Ibar(i)), KIND=4) ! EstarAlphastar is of size Sfinal

@@ -3,7 +3,7 @@ CONTAINS
 
 SUBROUTINE bfast(imgIndex)
 use globalVars_par
-use utilities_sept16_par
+use utilities_bfast
 use real_precision
 implicit none
 
@@ -11,7 +11,7 @@ implicit none
 INTEGER(kind = 8), intent(in) :: imgIndex(:)
 ! ***********************************************
 
-! ************* utility vars ********************
+! ************* utility variables ********************
 !general arrays and other variables
 INTEGER(KIND=8) :: num_pixels, pixel, pixel_x, pixel_y  !just like ewmacd
 INTEGER :: i, ncols, len_training_vec, num_valid_obs, pctr
@@ -45,6 +45,11 @@ INTEGER  :: iter, brkpt_spacing
 INTEGER :: startPoint, endPoint, j, hamTrend, hamSeason
 ! ***********************************************
 
+! ********* PURPOSE ****************
+!     Code for BFAST algorithm
+!     Supporting routines are all in utilities_bfast.f90
+! **********************************
+
 numTrendBrks = bfast_numBrks ! this is internal number of breaks.If we do count the boundary pts
 numSeasonalBrks = bfast_numBrks ! as breaks, then there are a total of numbrks + 2 breaks /
 tauTrend = bfast_pvalThresh
@@ -69,25 +74,20 @@ DO pixel = 1, num_pixels
      pctr = 0
      presInd = 0
      len_training_vec = 0
-     !IF (reverse .eqv. .FALSE.) THEN
-          DO i = 1, num_obs
-             IF (input_mat(i, pixel_x, pixel_y) > ewmacd_lowthresh) THEN
-                pctr = pctr + 1
-                presInd(pctr) = int(i, kind=2)
-                IF ((tyeardoy(i,1) >= trainingStart) .and. (tyeardoy(i,1) < trainingEnd)) THEN
-                   len_training_vec = len_training_vec + 1
-                ENDIF
-             ENDIF
-          END DO
-     !ENDIF
+     DO i = 1, num_obs
+        IF (input_mat(i, pixel_x, pixel_y) > ewmacd_lowthresh) THEN
+           pctr = pctr + 1
+           presInd(pctr) = int(i, kind=2)
+           IF ((tyeardoy(i,1) >= trainingStart) .and. (tyeardoy(i,1) < trainingEnd)) THEN
+              len_training_vec = len_training_vec + 1
+           ENDIF
+        ENDIF
+     END DO
      num_valid_obs = pctr
 
      IF (len_training_vec <= 2.0 * ewmacd_numHarmonics+1 ) THEN
         CYCLE     !note the use of ewmacd harmonics here
      ENDIF
-     !IF ((pixel_y <= 112) .and. (pixel_y > 111) .and. (pixel_x <= 158) .and. (pixel_x > 155)) then
-     !IF ((pixel_y == 112) .and. (pixel_x == 156) ) then
-     !print *, pixel_x, pixel_y
     ! **************** prepare data *************************
     
     brkpt_spacing = INT (FLOOR (num_valid_obs * bfast_brkptSpacingProp))
@@ -98,7 +98,7 @@ DO pixel = 1, num_pixels
     vec_timestamps_seasonal_pres(1:num_valid_obs) = (/(vec_timestamps_seasonal(presInd(i)), i=1,num_valid_obs) /)
     vec_obs_pres(1:num_valid_obs) = (/ (input_mat(presInd(i), pixel_x, pixel_y), i = 1,num_valid_obs) /)
 
-! ********************** actual processing starts here ***********
+    ! ********************** actual processing starts here ***********
     !initialize
     vec_fit_pres = 0
 
@@ -127,9 +127,7 @@ DO pixel = 1, num_pixels
                 &        pvalTrend, bfast_numColsProcess, bfast_brkptSpacingProp, "max")
        
          !get breakpoints in trend
-         !print *, 'pvalTrend =', pvalTrend
          if (pvalTrend <= tauTrend) then
-             !print *, 'going to find linear brkpt'
              numTrendBrksFinal = numTrendBrks + 2
              vec_trend_brkpts(1) = 1
              vec_trend_brkpts(numTrendBrks+2) = num_valid_obs
@@ -174,12 +172,10 @@ DO pixel = 1, num_pixels
                          &  pvalSeason, bfast_numColsProcess, bfast_brkptSpacingProp, "max")
          
          !get breakpoints in season
-         !print *, 'pvalSeason =', pvalSeason
          if (pvalSeason <= tauSeason) then
              numSeasonalBrksFinal = numSeasonalBrks + 2
              vec_seasonal_brkpts(1) = 1
              vec_seasonal_brkpts(numSeasonalBrks+2) = num_valid_obs
- 	     !print *, 'in main program, num_valid_obs=', num_valid_obs
              CALL getBrkPts(vec_timestamps_seasonal_pres(1:num_valid_obs),   &
                             vec_util(1:num_valid_obs), "harmon", &
                             bfast_numHarmonics, numSeasonalBrks,   &
@@ -193,7 +189,6 @@ DO pixel = 1, num_pixels
              vec_seasonal_brkpts(2) = num_valid_obs
              numSeasonalSegs = 1
          endif
-         !print *, 'reached here 3-1'
          !do piecewise harmonic approximation
          DO i = 1, numSeasonalSegs
               startPoint = vec_seasonal_brkpts(i)
@@ -237,7 +232,6 @@ DO pixel = 1, num_pixels
                                   &  linear_fit_coeffs(j,1:2))
           endif 
     END DO
-    !ENDIF
 END DO
 
 DEALLOCATE (work_arr%tmp_mat, work_arr%rtmp_vec1, work_arr%rtmp_vec2,  &
